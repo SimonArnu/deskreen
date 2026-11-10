@@ -6,7 +6,7 @@ import {
 overrideGlobalConsole();
 startConsoleRateLimiting();
 
-import { app, shell, BrowserWindow, Notification } from 'electron';
+import { app, shell, BrowserWindow, Notification, screen } from 'electron';
 import { join } from 'path';
 import { is, optimizer } from '@electron-toolkit/utils';
 import icon from '../../resources/icon.png?asset';
@@ -97,6 +97,7 @@ import { ElectronStoreKeys } from '../common/ElectronStoreKeys.enum';
 import { getDeskreenGlobal } from './helpers/getDeskreenGlobal';
 import { startLogBufferCleanup } from './utils/LoggerWithFilePrefix';
 import { parsePort } from './helpers/parsePort.mjs';
+import { mainWindowPosition } from './helpers/mainWindowPosition.mjs';
 
 const resolvePreloadScriptPath = (entry: 'index' | 'helperRenderer'): string => {
 	const baseDir = join(__dirname, '../preload');
@@ -209,10 +210,14 @@ export default class DeskreenApp {
 			await installExtensions();
 		}
 
+		const width = 940;
+		const height = 640;
+		const position = mainWindowPosition(screen.getPrimaryDisplay().workArea, width, height);
 		this.mainWindow = new BrowserWindow({
 			show: false,
-			width: 940,
-			height: 640,
+			width,
+			height,
+			...position,
 			minHeight: 460,
 			minWidth: 640,
 			titleBarStyle: 'hiddenInset',
