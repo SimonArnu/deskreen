@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import SimplePeer from 'simple-peer';
+import { useTranslation } from 'react-i18next';
 import MainView from './containers/MainView';
 import LoadingScreen from './components/LoadingScreen';
 
 const App: React.FC = () => {
+	const { t } = useTranslation();
 	// Helper function to check for prerendering safely
 	const isCurrentlyPrerendering = () => {
 		// Check if 'document' and 'prerendering' property exist
@@ -57,6 +60,19 @@ const App: React.FC = () => {
 		// This prevents heavy computations or API calls during the browser's prerender phase.
 		// console.log("Page is being prerendered by the browser (or support for detection is present). Waiting for activation.");
 		return <LoadingScreen />;
+	}
+
+	if (!SimplePeer.WEBRTC_SUPPORT) {
+		return (
+			<div role="alert" style={{ padding: '2rem' }}>
+				<h2>{t('WebRTC is unavailable in this browser.')}</h2>
+				<p>
+					{t(
+						'Check your browser settings and extensions, or try another browser.',
+					)}
+				</p>
+			</div>
+		);
 	}
 
 	return <MainView />;

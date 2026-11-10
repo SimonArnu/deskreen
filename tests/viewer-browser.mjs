@@ -37,6 +37,7 @@ const server = createServer(async (req, res) => {
 server.listen(0, '127.0.0.1');
 await once(server, 'listening');
 const origin = `http://127.0.0.1:${server.address().port}`;
+const withoutWebRTC = process.argv.includes('--without-webrtc');
 const profile = await mkdtemp(join(tmpdir(), 'deskreen-browser-'));
 const browser = spawn(
 	process.env.CHROME_BIN || '/opt/google/chrome/chrome',
@@ -103,8 +104,8 @@ try {
 	await send(
 		'Page.addScriptToEvaluateOnNewDocument',
 		{
-			source:
-				"try { localStorage.setItem('deskreen_ga_consent', 'accepted'); } catch {}",
+			source: `try { localStorage.setItem('deskreen_ga_consent', 'accepted'); } catch {}
+				${withoutWebRTC ? "['RTCPeerConnection', 'mozRTCPeerConnection', 'webkitRTCPeerConnection'].forEach((name) => Object.defineProperty(window, name, { value: undefined, configurable: true }));" : ''}`,
 		},
 		sessionId,
 	);
@@ -126,20 +127,29 @@ try {
 	});
 	if (external.length)
 		throw new Error(`External requests: ${external.join(', ')}`);
-	if (
-		!requests.some(
-			(url) => url.startsWith(origin) && url.includes('/socket.io/'),
-		)
-	)
-		throw new Error('Viewer did not attempt to signal at the serving origin');
+	const signaled = requests.some(
+		(url) => url.startsWith(origin) && url.includes('/socket.io/'),
+	);
 	if (/privacy notice|analytics/i.test(result.result.value))
 		throw new Error('Analytics consent remains visible');
-	if (
-		!/Waiting for (user to click ALLOW|video stream)/i.test(result.result.value)
-	)
-		throw new Error(
-			`Viewer did not display the connection instructions: ${JSON.stringify(result.result.value)}`,
-		);
+	if (withoutWebRTC) {
+		if (!/WebRTC is unavailable/i.test(result.result.value))
+			throw new Error(
+				`Viewer did not explain missing WebRTC: ${JSON.stringify(result.result.value)}`,
+			);
+		if (signaled) throw new Error('Viewer tried to connect without WebRTC');
+	} else {
+		if (!signaled)
+			throw new Error('Viewer did not attempt to signal at the serving origin');
+		if (
+			!/Waiting for (user to click ALLOW|video stream)/i.test(
+				result.result.value,
+			)
+		)
+			throw new Error(
+				`Viewer did not display the connection instructions: ${JSON.stringify(result.result.value)}`,
+			);
+	}
 	console.log(
 		`Viewer rendered with ${requests.length} same-origin requests and no analytics prompt or external requests.`,
 	);
