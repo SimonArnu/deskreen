@@ -51,38 +51,28 @@ export default (peerConnection: PeerConnection) => {
 	});
 
 	socket.on('connect', () => {
-		let ipCallbackReceived = false;
-
-		// clear any existing reconnect timeout
 		if (peerConnection.reconnectTimeout) {
 			clearTimeout(peerConnection.reconnectTimeout);
 		}
 
 		peerConnection.reconnectTimeout = setTimeout(() => {
-			if (!ipCallbackReceived && isAllowed) {
-				console.log('GET_MY_IP callback not received, reconnecting socket');
+			if (isAllowed) {
+				console.log('Signaling handshake timed out, reconnecting socket');
 				socket.disconnect();
 				socket.connect();
 			}
-		}, 2500); // 2 seconds timeout to wait for callback
+		}, 5000);
+	});
 
-		// clear any existing getMyIP timeout
-		if (peerConnection.getMyIPTimeout) {
-			clearTimeout(peerConnection.getMyIPTimeout);
-		}
-
-		peerConnection.getMyIPTimeout = setTimeout(() => {
-			if (!isAllowed) return;
-			socket.emit('GET_MY_IP', (ip: string) => {
-				console.log('GET_MY_IP', ip);
-				ipCallbackReceived = true;
-				if (peerConnection.reconnectTimeout) {
-					clearTimeout(peerConnection.reconnectTimeout);
-					peerConnection.reconnectTimeout = null;
-				}
-				getMyIPCallback(peerConnection, ip, window.navigator.userAgent);
-			});
-		}, 500);
+	socket.on('ROOM_READY', () => {
+		if (!isAllowed) return;
+		socket.emit('GET_MY_IP', (ip: string) => {
+			if (peerConnection.reconnectTimeout) {
+				clearTimeout(peerConnection.reconnectTimeout);
+				peerConnection.reconnectTimeout = null;
+			}
+			getMyIPCallback(peerConnection, ip, window.navigator.userAgent);
+		});
 	});
 
 	socket.on('NOT_ALLOWED', () => {

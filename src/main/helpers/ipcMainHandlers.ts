@@ -14,7 +14,6 @@ import RoomIDService from '../../server/RoomIDService';
 import { signalingServer } from '../../server';
 import { onDeviceConnectedCallback } from '../../server/onDeviceConnectedCallback';
 import SharingSessionStatusEnum from '../../features/SharingSessionService/SharingSessionStatusEnum';
-import getMyLocalIpV4 from './getMyLocalIpV4';
 import isWifiConnected from './isWifiConnected';
 import { getDeskreenGlobal } from './getDeskreenGlobal';
 import { IpcEvents } from '../../common/IpcEvents.enum';
@@ -23,6 +22,7 @@ import { store } from '../../common/deskreen-electron-store';
 import DesktopCapturerSourceType from '../../common/DesktopCapturerSourceType';
 import isLinuxWaylandSession from '../utils/isLinuxWaylandSession';
 import { checkScreenRecordingPermission } from './checkScreenRecordingPermission';
+import { approveViewer, isViewerApproved } from '../../server/approval';
 
 export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 	ipcMain.on('client-changed-language', async (_, newLangCode) => {
@@ -111,13 +111,10 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 		deskreenGlobal.sharingSessionService.sharingSessions.clear();
 	});
 
-	ipcMain.handle('get-local-lan-ip', async () => {
-		const deskreenGlobal = getDeskreenGlobal();
-		if (deskreenGlobal.cliLocalIp) {
-			return deskreenGlobal.cliLocalIp;
-		}
-		const ip = getMyLocalIpV4();
-		return ip;
+	ipcMain.handle(IpcEvents.GetConnectionInfo, () => {
+		const { localHostname, certificatePath, certificateFingerprint } =
+			getDeskreenGlobal();
+		return { localHostname, certificatePath, certificateFingerprint };
 	});
 
 	ipcMain.handle('check-wifi-connection', async () => {
@@ -189,6 +186,30 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 		resetWaitingForConnectionSharingSession();
 	});
 
+	ipcMain.handle(
+		IpcEvents.ReportPendingViewerDisconnected,
+		(_, details: { sharingSessionId?: unknown; socketId?: unknown }) => {
+			const { connectedDevicesService, sharingSessionService } =
+				getDeskreenGlobal();
+			const pending = connectedDevicesService.pendingConnectionDevice;
+			const waiting = sharingSessionService.waitingForConnectionSharingSession;
+			if (
+				!details ||
+				typeof details.socketId !== 'string' ||
+				typeof details.sharingSessionId !== 'string' ||
+				pending.socketId !== details.socketId ||
+				pending.sharingSessionID !== details.sharingSessionId ||
+				waiting?.id !== details.sharingSessionId
+			)
+				return;
+			connectedDevicesService.resetPendingConnectionDevice();
+			resetWaitingForConnectionSharingSession();
+			if (!mainWindow.isDestroyed())
+				mainWindow.webContents.send(IpcEvents.PendingViewerDisconnected);
+			void createWaitingForConnectionSharingSession();
+		},
+	);
+
 	const removeViewerAvailabilityListener =
 		getDeskreenGlobal().connectedDevicesService.addAvailabilityListener(
 			(state) => {
@@ -212,17 +233,40 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 		removeViewerAvailabilityListener();
 	});
 
-	ipcMain.handle(IpcEvents.SetDeviceConnectedStatus, () => {
-		if (
-			getDeskreenGlobal().sharingSessionService
-				.waitingForConnectionSharingSession !== null
-		) {
+	ipcMain.handle(
+		IpcEvents.SetDeviceConnectedStatus,
+		async (
+			_,
+			requested: { socketId?: unknown; sharingSessionId?: unknown },
+		) => {
+			const { sharingSessionService, connectedDevicesService } =
+				getDeskreenGlobal();
 			const sharingSession =
-				getDeskreenGlobal().sharingSessionService
-					.waitingForConnectionSharingSession;
-			sharingSession?.setStatus(SharingSessionStatusEnum.CONNECTED);
-		}
-	});
+				sharingSessionService.waitingForConnectionSharingSession;
+			const pending = connectedDevicesService.pendingConnectionDevice;
+			if (
+				!sharingSession ||
+				!requested ||
+				typeof requested.socketId !== 'string' ||
+				typeof requested.sharingSessionId !== 'string' ||
+				pending.socketId !== requested.socketId ||
+				pending.sharingSessionID !== requested.sharingSessionId ||
+				sharingSession.id !== requested.sharingSessionId
+			)
+				return false;
+			if (!(await approveViewer(sharingSession.roomID, requested.socketId)))
+				return false;
+			if (
+				sharingSessionService.waitingForConnectionSharingSession !==
+					sharingSession ||
+				connectedDevicesService.pendingConnectionDevice.socketId !==
+					requested.socketId
+			)
+				return false;
+			sharingSession.setStatus(SharingSessionStatusEnum.CONNECTED);
+			return true;
+		},
+	);
 
 	ipcMain.handle(
 		IpcEvents.GetSourceDisplayIDByDesktopCapturerSourceID,
@@ -343,7 +387,7 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 		},
 	);
 
-	function startSharingOnWaitingForConnectionSharingSession(): void {
+	async function startSharingOnWaitingForConnectionSharingSession(): Promise<boolean> {
 		const deskreenGlobal = getDeskreenGlobal();
 		const { connectedDevicesService, sharingSessionService, roomIDService } =
 			deskreenGlobal;
@@ -354,22 +398,35 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 			waitingSession?.setStatus(SharingSessionStatusEnum.NOT_CONNECTED);
 			sharingSessionService.waitingForConnectionSharingSession = null;
 			connectedDevicesService.resetPendingConnectionDevice();
-			return;
+			return false;
 		}
 
 		const pendingDevice = connectedDevicesService.pendingConnectionDevice;
 		if (!pendingDevice.id) {
-			return;
+			return false;
 		}
 
 		const sharingSession =
 			sharingSessionService.waitingForConnectionSharingSession;
-		if (sharingSession !== null) {
-			roomIDService.unmarkRoomIDAsTaken(sharingSession.roomID);
-		}
+		if (
+			!sharingSession ||
+			sharingSession.id !== pendingDevice.sharingSessionID ||
+			sharingSession.status !== SharingSessionStatusEnum.CONNECTED ||
+			!(await isViewerApproved(sharingSession.roomID, pendingDevice.socketId))
+		)
+			return false;
+		if (
+			sharingSessionService.waitingForConnectionSharingSession !==
+				sharingSession ||
+			connectedDevicesService.pendingConnectionDevice.socketId !==
+				pendingDevice.socketId
+		)
+			return false;
+		roomIDService.unmarkRoomIDAsTaken(sharingSession.roomID);
 
 		try {
 			connectedDevicesService.addDevice(pendingDevice);
+			sharingSession.setDeviceID(pendingDevice.id);
 		} catch (error) {
 			console.error('failed to occupy single viewer slot', error);
 			if (sharingSession !== null) {
@@ -378,7 +435,7 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 				sharingSessionService.waitingForConnectionSharingSession = null;
 			}
 			connectedDevicesService.resetPendingConnectionDevice();
-			return;
+			return false;
 		}
 
 		if (sharingSession !== null) {
@@ -388,13 +445,12 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 		}
 
 		connectedDevicesService.resetPendingConnectionDevice();
+		return true;
 	}
 
 	ipcMain.handle(
 		IpcEvents.StartSharingOnWaitingForConnectionSharingSession,
-		() => {
-			startSharingOnWaitingForConnectionSharingSession();
-		},
+		() => startSharingOnWaitingForConnectionSharingSession(),
 	);
 
 	ipcMain.handle(IpcEvents.GetPendingConnectionDevice, () => {
@@ -469,6 +525,11 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 		}
 		const sharingSession =
 			getDeskreenGlobal().sharingSessionService.sharingSessions.get(id);
+		if (sharingSession?.deviceID) {
+			getDeskreenGlobal().connectedDevicesService.disconnectDeviceByID(
+				sharingSession.deviceID,
+			);
+		}
 		sharingSession?.setStatus(SharingSessionStatusEnum.DESTROYED);
 		sharingSession?.destroy();
 		getDeskreenGlobal().sharingSessionService.sharingSessions.delete(id);

@@ -3,4 +3,5 @@ interface Room {
 	users: User[];
 	isLocked: boolean;
 	createdAt: number;
+	approvedViewerSocketId?: string;
 }

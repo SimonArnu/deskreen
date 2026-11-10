@@ -4,6 +4,7 @@ import { readFile, mkdtemp } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { once } from 'node:events';
+import { connectDevtools } from './devtools.mjs';
 
 const root = resolve('src/client-viewer/dist');
 const types = {
@@ -67,31 +68,15 @@ try {
 			reject(new Error(`Chrome exited: ${code}\n${output}`)),
 		);
 	});
-	const socket = new WebSocket(endpoint);
-	await once(socket, 'open');
-	let nextId = 0;
-	const pending = new Map();
+	const devtools = await connectDevtools(endpoint);
+	const { send } = devtools;
 	const requests = [];
-	socket.addEventListener('message', ({ data }) => {
-		const message = JSON.parse(data);
-		if (message.id && pending.has(message.id)) {
-			const { resolve, reject } = pending.get(message.id);
-			pending.delete(message.id);
-			if (message.error) reject(new Error(message.error.message));
-			else resolve(message.result);
-		}
+	devtools.onEvent((message) => {
 		if (message.method === 'Network.requestWillBeSent')
 			requests.push(message.params.request.url);
 		if (message.method === 'Network.webSocketCreated')
 			requests.push(message.params.url);
 	});
-	function send(method, params = {}, sessionId) {
-		const id = ++nextId;
-		return new Promise((resolve, reject) => {
-			pending.set(id, { resolve, reject });
-			socket.send(JSON.stringify({ id, method, params, sessionId }));
-		});
-	}
 	const { targetId } = await send('Target.createTarget', {
 		url: 'about:blank',
 	});
@@ -153,7 +138,7 @@ try {
 	console.log(
 		`Viewer rendered with ${requests.length} same-origin requests and no analytics prompt or external requests.`,
 	);
-	socket.close();
+	devtools.close();
 } finally {
 	browser.kill();
 	server.close();

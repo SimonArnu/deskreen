@@ -29,6 +29,7 @@ export default class SharingSession {
 		_roomID: string,
 		user: LocalPeerUser,
 		peerConnectionHelperRendererService: PeerConnectionHelperRendererService,
+		ownerToken: string,
 	) {
 		this.id = uuidv4();
 		this.deviceID = '';
@@ -58,6 +59,7 @@ export default class SharingSession {
 					roomID: this.roomID,
 					sharingSessionID: this.id,
 					user,
+					ownerToken,
 				},
 			);
 		});

@@ -68,8 +68,6 @@ export default class PeerConnection {
 
 	reconnectTimeout: NodeJS.Timeout | null = null;
 
-	getMyIPTimeout: NodeJS.Timeout | null = null;
-
 	setMyDeviceDetailsTimeout: NodeJS.Timeout | null = null;
 
 	constructor(
@@ -146,10 +144,6 @@ export default class PeerConnection {
 		if (this.reconnectTimeout) {
 			clearTimeout(this.reconnectTimeout);
 			this.reconnectTimeout = null;
-		}
-		if (this.getMyIPTimeout) {
-			clearTimeout(this.getMyIPTimeout);
-			this.getMyIPTimeout = null;
 		}
 		if (this.setMyDeviceDetailsTimeout) {
 			clearTimeout(this.setMyDeviceDetailsTimeout);

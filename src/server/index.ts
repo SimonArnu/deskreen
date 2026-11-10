@@ -5,9 +5,9 @@
  * */
 
 import http from 'http';
+import https from 'https';
 import Koa from 'koa';
-import crypto from 'crypto';
-import { Server } from 'socket.io';
+import { Server, type Socket } from 'socket.io';
 import cors from 'kcors';
 import Router from 'koa-router';
 import koaStatic from 'koa-static';
@@ -16,46 +16,38 @@ import detectPort from 'detect-port';
 import config from '../common/config';
 import startPollForInactiveRooms from './startPollForInactiveRooms';
 import Logger from '../main/utils/LoggerWithFilePrefix';
-import SocketsIPService from './socketsIPService';
 import socketIOServerStore from './store/socketIOServerStore';
 import DarkwireSocket from './darkwireSocket';
 import getStore from './store';
 import { getDeskreenGlobal } from '../main/helpers/getDeskreenGlobal';
-import getMyLocalIpV4 from '../main/helpers/getMyLocalIpV4';
 import { getClientViewerDistPath } from './getClientViewerDistPath';
+import { isAllowedOrigin, isOwnerCredential } from './origin.mjs';
+import { AttemptLimit } from './AttemptLimit.mjs';
+import { roomHash } from './roomHash.mjs';
 
 const { hostname, primaryPort, backupPort } = config;
 
-const getRoomIdHash = (id: string): string => {
-	return crypto.createHash('sha256').update(id).digest('hex');
-};
-
-const ioHandleOnConnection = (socket): void => {
+const ioHandleOnConnection = async (socket: Socket): Promise<void> => {
 	const { roomId } = socket.handshake.query;
 	const store = getStore();
-
-	setTimeout(async () => {
-		if (!getDeskreenGlobal().roomIDService.isRoomIDTaken(roomId)) {
-			socket.emit('NOT_ALLOWED');
-			setTimeout(() => {
-				socket.disconnect(true);
-			}, 1000);
-			return;
-		}
-		const roomIdHash = getRoomIdHash(roomId);
-
-		const storedRoom = await store.get('rooms', roomIdHash);
-		const parsedRoom =
-			typeof storedRoom === 'string' ? JSON.parse(storedRoom) : {};
-
-		new DarkwireSocket({
-			roomIdOriginal: roomId,
-			roomId: roomIdHash,
-			socket,
-			room: parsedRoom as Room,
-		});
-		// }
-	}, 500); // timeout 500 millisecond for throttling malicious connections
+	if (
+		typeof roomId !== 'string' ||
+		!getDeskreenGlobal().roomIDService.isRoomIDTaken(roomId)
+	) {
+		socket.emit('NOT_ALLOWED');
+		setTimeout(() => socket.disconnect(true), 0);
+		return;
+	}
+	const roomIdHash = roomHash(roomId);
+	const storedRoom = await store.get('rooms', roomIdHash);
+	const parsedRoom =
+		typeof storedRoom === 'string' ? JSON.parse(storedRoom) : {};
+	new DarkwireSocket({
+		roomIdOriginal: roomId,
+		roomId: roomIdHash,
+		socket,
+		room: parsedRoom as Room,
+	});
 };
 
 function setStaticFileHeaders(
@@ -75,6 +67,7 @@ function setStaticFileHeaders(
 
 class DeskreenSignalingServer {
 	log = new Logger(__filename);
+	attemptLimit = new AttemptLimit(120, 60_000, 512);
 
 	server = {} as unknown as http.Server;
 
@@ -91,8 +84,7 @@ class DeskreenSignalingServer {
 	clientDistDirectory: string;
 
 	constructor() {
-		const localIp = getMyLocalIpV4();
-		this.hostname = localIp || String(hostname);
+		this.hostname = String(hostname);
 		this.primaryPort = parseInt(primaryPort as unknown as string, 10);
 		this.backupPort = parseInt(backupPort as unknown as string, 10);
 
@@ -104,11 +96,9 @@ class DeskreenSignalingServer {
 				'Client viewer bundle is missing. Remote connections will fail.',
 			);
 		}
-
-		this.init();
 	}
 
-	init(): void {
+	init(credentials: { key: string; cert: string }): void {
 		this.app = new Koa();
 		const router = new Router();
 
@@ -133,31 +123,55 @@ class DeskreenSignalingServer {
 			});
 		}
 
-		const protocol = http;
-
-		this.server = protocol.createServer(this.app.callback());
+		this.server = https.createServer(credentials, this.app.callback());
 		const io = new Server(this.server, {
 			pingInterval: 20000,
 			pingTimeout: 5000,
 			serveClient: false,
-		});
-
-		io.sockets.on('connection', (socket) => {
-			const socketId = socket.id;
-
-			const clientIp = socket.request.socket.remoteAddress;
-			SocketsIPService.setIPOfSocketID(socketId, clientIp || '');
+			allowRequest: (request, callback) => {
+				const address = request.socket.remoteAddress ?? '';
+				const token = new URL(
+					request.url ?? '/',
+					'https://localhost',
+				).searchParams.get('ownerToken');
+				const owner = isOwnerCredential(
+					address,
+					token,
+					getDeskreenGlobal().ownerToken,
+				);
+				callback(
+					null,
+					isAllowedOrigin(
+						request.headers.origin,
+						address,
+						this.hostname,
+						this.port,
+						owner,
+					) &&
+						io.engine.clientsCount < 128 &&
+						this.attemptLimit.allow(address),
+				);
+			},
 		});
 
 		io.on('connection', (socket) => {
-			ioHandleOnConnection(socket);
+			void ioHandleOnConnection(socket).catch((error) => {
+				this.log.error('Failed to initialize signaling connection:', error);
+				socket.disconnect(true);
+			});
 		});
 
 		socketIOServerStore.setServer(io);
 	}
 
-	async start(port?: number): Promise<http.Server> {
+	async start(
+		port: number | undefined,
+		credentials: { key: string; cert: string },
+		localHostname: string,
+	): Promise<http.Server> {
 		startPollForInactiveRooms();
+		this.hostname = localHostname;
+		this.init(credentials);
 		if (port !== undefined) this.port = port;
 		this.server = await this.callListenOnHttpServer(port !== undefined);
 		return this.server;
@@ -169,7 +183,7 @@ class DeskreenSignalingServer {
 				`Deskreen CE signaling server is online at port ${this.port}`,
 			);
 			this.log.info(
-				`🌐 Server available at http://${this.hostname}:${this.port}`,
+				`🌐 Server available at https://${this.hostname}:${this.port}`,
 			);
 		};
 	}

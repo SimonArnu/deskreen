@@ -51,6 +51,7 @@ export function handleIpcRenderer(): void {
 					data.sharingSessionID,
 					data.user,
 					port,
+					data.ownerToken,
 				);
 
 				peerConnection.setOnDeviceConnectedCallback((deviceData) => {

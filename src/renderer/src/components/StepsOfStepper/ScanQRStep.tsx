@@ -12,12 +12,9 @@ import { QRCodeSVG } from 'qrcode.react';
 import { makeStyles, createStyles } from '@material-ui/core';
 import { Row, Col } from 'react-flexbox-grid';
 import isProduction from '../../../../common/isProduction';
-import config from '../../../../common/config';
 import { IpcEvents } from '../../../../common/IpcEvents.enum';
 import { useTranslation } from 'react-i18next';
 import Logo192 from '../../assets/logo192.png';
-
-const { hostname } = config;
 
 const useStyles = makeStyles(() =>
 	createStyles({
@@ -55,8 +52,21 @@ const ScanQRStep: React.FC = () => {
 
 	const [isViewerSlotAvailable, setIsViewerSlotAvailable] = useState(true);
 	const [roomID, setRoomID] = useState('');
-	const [LOCAL_LAN_IP, setLocalLanIP] = useState('');
+	const [connectionInfo, setConnectionInfo] = useState<{
+		localHostname: string;
+		certificatePath: string;
+		certificateFingerprint: string;
+	} | null>(null);
 	const [isQRCodeMagnified, setIsQRCodeMagnified] = useState(false);
+
+	useEffect(() => {
+		window.electron.ipcRenderer
+			.invoke(IpcEvents.GetConnectionInfo)
+			.then(setConnectionInfo)
+			.catch((error) =>
+				console.error('Failed to get connection information:', error),
+			);
+	}, []);
 
 	useEffect(() => {
 		window.electron.ipcRenderer
@@ -132,27 +142,14 @@ const ScanQRStep: React.FC = () => {
 			}
 		};
 
-		const fetchLocalIp = async (): Promise<void> => {
-			const gotIP =
-				await window.electron.ipcRenderer.invoke('get-local-lan-ip');
-			if (!cancelled && gotIP) {
-				setLocalLanIP(gotIP);
-			}
-		};
-
 		void fetchRoomId();
-		void fetchLocalIp();
 		const roomInterval = setInterval(() => {
 			void fetchRoomId();
-		}, 1000);
-		const ipInterval = setInterval(() => {
-			void fetchLocalIp();
 		}, 1000);
 
 		return () => {
 			cancelled = true;
 			clearInterval(roomInterval);
-			clearInterval(ipInterval);
 		};
 	}, [isViewerSlotAvailable]);
 
@@ -164,10 +161,10 @@ const ScanQRStep: React.FC = () => {
 	}, [roomID]);
 	const shareUrl = useMemo(() => {
 		if (!isViewerSlotAvailable) return '';
-		if (LOCAL_LAN_IP === '') return '';
+		if (!connectionInfo?.localHostname) return '';
 		if (roomPath === '') return '';
-		return `http://${LOCAL_LAN_IP}${portString}${roomPath}`;
-	}, [LOCAL_LAN_IP, portString, roomPath, isViewerSlotAvailable]);
+		return `https://${connectionInfo.localHostname}${portString}${roomPath}`;
+	}, [connectionInfo, portString, roomPath, isViewerSlotAvailable]);
 	const isQrInteractive = shareUrl !== '';
 	const connectionLimitTooltip = t('connection-limit-reached-tooltip');
 	const qrTooltipContent = isQrInteractive
@@ -179,6 +176,37 @@ const ScanQRStep: React.FC = () => {
 
 	return (
 		<>
+			{connectionInfo && (
+				<details style={{ margin: '0 auto 12px', maxWidth: '640px' }}>
+					<summary>{t('First-time HTTPS setup')}</summary>
+					<p>
+						{t(
+							'Transfer the public CA certificate to your viewing device using a trusted method, verify its fingerprint, and trust it in the browser if supported. A trusted CA can identify other websites too. Never share the CA private key.',
+						)}
+					</p>
+					<p>
+						{t('Public CA certificate')}:{' '}
+						<code>{connectionInfo.certificatePath}</code>
+					</p>
+					<Button
+						small
+						onClick={() =>
+							window.electron.ipcRenderer.invoke(
+								IpcEvents.WriteTextToClipboard,
+								connectionInfo.certificatePath,
+							)
+						}
+					>
+						{t('Copy certificate path')}
+					</Button>
+					<p>
+						{t('SHA-256 fingerprint')}:{' '}
+						<code style={{ overflowWrap: 'anywhere' }}>
+							{connectionInfo.certificateFingerprint}
+						</code>
+					</p>
+				</details>
+			)}
 			<div style={{ textAlign: 'center' }}>
 				<Text>
 					<span
@@ -362,7 +390,7 @@ const ScanQRStep: React.FC = () => {
 					<Col>
 						<H3>
 							{isQrInteractive
-								? `${hostname}${portString}${roomPath}`
+								? `${connectionInfo?.localHostname}${portString}${roomPath}`
 								: t('waiting-for-connection')}
 						</H3>
 						<H3>{isQrInteractive ? shareUrl : t('waiting-for-connection')}</H3>

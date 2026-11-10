@@ -2,6 +2,7 @@ import { Device } from '../../common/Device';
 
 export const nullDevice: Device = {
 	id: '',
+	socketId: '',
 	sharingSessionID: '',
 	deviceOS: '',
 	deviceType: '',

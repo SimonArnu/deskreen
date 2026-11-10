@@ -6,7 +6,8 @@ import {
 overrideGlobalConsole();
 startConsoleRateLimiting();
 
-import { app, shell, BrowserWindow, screen } from 'electron';
+import { app, shell, BrowserWindow, screen, session, dialog } from 'electron';
+import { X509Certificate } from 'node:crypto';
 import { join } from 'path';
 import { is, optimizer } from '@electron-toolkit/utils';
 import icon from '../../resources/icon.png?asset';
@@ -95,8 +96,13 @@ import { ElectronStoreKeys } from '../common/ElectronStoreKeys.enum';
 import { startLogBufferCleanup } from './utils/LoggerWithFilePrefix';
 import { parsePort } from './helpers/parsePort.mjs';
 import { mainWindowPosition } from './helpers/mainWindowPosition.mjs';
+import { getLocalHostname } from './helpers/localHostname.mjs';
+import { loadCertificates } from '../server/certificates.mjs';
+import { verifyLocalCertificate } from './helpers/verifyLocalCertificate.mjs';
 
-const resolvePreloadScriptPath = (entry: 'index' | 'helperRenderer'): string => {
+const resolvePreloadScriptPath = (
+	entry: 'index' | 'helperRenderer',
+): string => {
 	const baseDir = join(__dirname, '../preload');
 	const candidates = [`${entry}.js`, `${entry}.mjs`, `${entry}.cjs`];
 	for (const fileName of candidates) {
@@ -113,7 +119,7 @@ export default class DeskreenApp {
 
 	menuBuilder: MenuBuilder | null = null;
 
-	initElectronAppObject(): void {
+	initElectronAppObject(port?: number): void {
 		/**
 		 * Add event listeners...
 		 */
@@ -127,18 +133,54 @@ export default class DeskreenApp {
 			}
 		});
 
-		app.whenReady().then(async () => {
-			app.setAppUserModelId('com.deskreen-ce.app');
-			if (process.platform === 'darwin') {
-				app.setActivationPolicy('regular');
-			}
+		app
+			.whenReady()
+			.then(async () => {
+				app.setAppUserModelId('com.deskreen-ce.app');
+				if (process.platform === 'darwin') {
+					app.setActivationPolicy('regular');
+				}
 
-			// start log buffer cleanup to prevent memory bloat
-			startLogBufferCleanup();
+				// start log buffer cleanup to prevent memory bloat
+				startLogBufferCleanup();
 
-			await this.createWindow();
-
-		});
+				const localHostname = getLocalHostname();
+				const certificateDirectory = join(
+					app.getPath('userData'),
+					'security',
+					'certificates',
+				);
+				const certificates = loadCertificates(
+					certificateDirectory,
+					localHostname,
+				);
+				initGlobals(
+					join(__dirname, '..'),
+					localHostname,
+					join(certificateDirectory, 'ca.crt'),
+					new X509Certificate(certificates.ca).fingerprint256,
+				);
+				session.defaultSession.setCertificateVerifyProc((request, callback) => {
+					callback(
+						verifyLocalCertificate(
+							request.hostname,
+							request.certificate.data,
+							certificates.cert,
+						),
+					);
+				});
+				await signalingServer.start(port, certificates, localHostname);
+				await this.createWindow();
+			})
+			.catch((error) => {
+				console.error('Failed to start Deskreen:', error);
+				const reason =
+					error instanceof Error && error.cause instanceof Error
+						? `${error.message}\n${error.cause.message}`
+						: String(error);
+				dialog.showErrorBox('Deskreen could not start', reason);
+				app.quit();
+			});
 
 		app.on('browser-window-created', (_, window) => {
 			optimizer.watchWindowShortcuts(window);
@@ -162,7 +204,11 @@ export default class DeskreenApp {
 	async createWindow(): Promise<void> {
 		const width = 940;
 		const height = 640;
-		const position = mainWindowPosition(screen.getPrimaryDisplay().workArea, width, height);
+		const position = mainWindowPosition(
+			screen.getPrimaryDisplay().workArea,
+			width,
+			height,
+		);
 		this.mainWindow = new BrowserWindow({
 			show: false,
 			width,
@@ -286,28 +332,7 @@ export default class DeskreenApp {
 			app.quit();
 			return;
 		}
-		const cliLocalIp = this.parseCliLocalIp();
-		initGlobals(join(__dirname, '..'), cliLocalIp);
-		void signalingServer.start(port).catch((error) => {
-			console.error('Failed to start signaling server:', error);
-			app.quit();
-		});
-
-		this.initElectronAppObject();
-	}
-
-	private parseCliLocalIp(): string | undefined {
-		const args = process.argv;
-		const localIpIndex = args.findIndex(
-			(arg) => arg === '--local-ip' || arg === '--ip',
-		);
-		if (localIpIndex !== -1 && localIpIndex + 1 < args.length) {
-			const ip = args[localIpIndex + 1];
-			if (ip && !ip.startsWith('--')) {
-				return ip;
-			}
-		}
-		return undefined;
+		this.initElectronAppObject(port);
 	}
 }
 

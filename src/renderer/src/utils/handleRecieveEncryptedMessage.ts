@@ -1,5 +1,6 @@
 import { process as processMessage } from './message';
 import { IpcEvents } from '../../../common/IpcEvents.enum';
+import { canAcceptDeviceDetails } from '../features/PeerConnection/deviceDetails.mjs';
 
 export type CallAcceptedMessageWithPayload = {
 	type: 'CALL_ACCEPTED';
@@ -65,12 +66,23 @@ export type ProcessedMessage =
 
 export function handleDeviceIPMessage(
 	deviceIP: string,
+	socketId: string,
 	peerConnection: PeerConnection,
 	message: ProcessedMessage,
 ): void {
 	if (message.type !== 'DEVICE_DETAILS') return;
+	if (
+		!canAcceptDeviceDetails(
+			peerConnection.partner.socketId,
+			peerConnection.partnerDeviceDetails.socketId,
+			peerConnection.partnerDeviceDetails.id,
+			socketId,
+		)
+	)
+		return;
 	const device = {
 		id: Math.random().toString(),
+		socketId,
 		deviceIP,
 		deviceType: message.payload.deviceType,
 		deviceOS: message.payload.os,
@@ -100,12 +112,23 @@ export const handleRecieveEncryptedMessage = async (
 		peerConnection.peer.signal(message.payload.signalData);
 	}
 	if (message.type === 'DEVICE_DETAILS') {
+		if (payload.fromSocketID !== peerConnection.partner.socketId) return;
 		peerConnection.socket.emit(
 			'GET_IP_BY_SOCKET_ID',
 			payload.fromSocketID,
 			(deviceIP: string) => {
+				if (
+					typeof deviceIP !== 'string' ||
+					peerConnection.partner.socketId !== payload.fromSocketID
+				)
+					return;
 				// TODO: need to add myIP in client message.payload.myIP, then if retrieved deviceIP and myIP from client don't match, we were spoofed, then we can interrupt connection immediately!
-				handleDeviceIPMessage(deviceIP, peerConnection, message);
+				handleDeviceIPMessage(
+					deviceIP,
+					payload.fromSocketID,
+					peerConnection,
+					message,
+				);
 			},
 		);
 	}

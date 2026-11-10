@@ -21,6 +21,7 @@ type DisplaySize = { width: number; height: number };
 
 export interface PartnerPeerUser {
 	username: string;
+	socketId: string;
 }
 
 export default class PeerConnection {
@@ -55,11 +56,12 @@ export default class PeerConnection {
 		sharingSessionID: string,
 		user: LocalPeerUser,
 		port: string,
+		ownerToken: string,
 	) {
 		this.sharingSessionID = sharingSessionID;
 		this.isSocketRoomLocked = false;
 		this.roomID = encodeURI(roomID);
-		this.socket = connectSocket(port, this.roomID);
+		this.socket = connectSocket(port, this.roomID, ownerToken);
 		this.user = user;
 		this.partner = NullUser;
 		this.desktopCapturerSourceID = '';
@@ -247,9 +249,7 @@ export default class PeerConnection {
 	}
 
 	disconnectPartner(): void {
-		this.socket.emit('DISCONNECT_SOCKET_BY_DEVICE_IP', {
-			ip: this.partnerDeviceDetails.deviceIP,
-		});
+		this.socket.emit('DISCONNECT_PARTNER');
 
 		this.partnerDeviceDetails = {} as Device;
 	}

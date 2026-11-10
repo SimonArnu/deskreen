@@ -169,13 +169,33 @@ const DeskreenStepper = ({
 	};
 
 	const handleConfirmAlert = useCallback(async () => {
+		const allowed = await window.electron.ipcRenderer.invoke(
+			IpcEvents.SetDeviceConnectedStatus,
+			{
+				socketId: pendingConnectionDevice?.socketId,
+				sharingSessionId: pendingConnectionDevice?.sharingSessionID,
+			},
+		);
+		if (!allowed) {
+			handleReset();
+			void showMessageFromNewToaster(
+				t(
+					'The device disconnected before it could be approved. Please reconnect.',
+				),
+			);
+			return;
+		}
 		setIsAllowDeviceAlertOpen(false);
 		setIsUserAllowedConnection(true);
 		handleNext();
-		await window.electron.ipcRenderer.invoke(
-			IpcEvents.SetDeviceConnectedStatus,
-		);
-	}, [handleNext, setIsAllowDeviceAlertOpen, setIsUserAllowedConnection]);
+	}, [
+		handleNext,
+		handleReset,
+		pendingConnectionDevice,
+		setIsAllowDeviceAlertOpen,
+		setIsUserAllowedConnection,
+		t,
+	]);
 
 	useEffect(() => {
 		window.electron.ipcRenderer.invoke(
@@ -202,6 +222,36 @@ const DeskreenStepper = ({
 			);
 		};
 	}, [setIsAllowDeviceAlertOpen, setPendingConnectionDevice]);
+
+	useEffect(() => {
+		const handlePendingViewerDisconnected = () => {
+			setActiveStep(0);
+			setIsAllowDeviceAlertOpen(false);
+			setPendingConnectionDevice(null);
+			setIsUserAllowedConnection(false);
+			setIsEntireScreenSelected(false);
+			setIsApplicationWindowSelected(false);
+			void showMessageFromNewToaster(
+				t('The device disconnected before sharing. Please reconnect.'),
+			);
+		};
+		window.electron.ipcRenderer.on(
+			IpcEvents.PendingViewerDisconnected,
+			handlePendingViewerDisconnected,
+		);
+		return () => {
+			window.electron.ipcRenderer.removeListener(
+				IpcEvents.PendingViewerDisconnected,
+				handlePendingViewerDisconnected,
+			);
+		};
+	}, [
+		setActiveStep,
+		setIsAllowDeviceAlertOpen,
+		setPendingConnectionDevice,
+		setIsUserAllowedConnection,
+		t,
+	]);
 
 	const handleUserClickedDeviceDisconnectButton =
 		useCallback(async (): Promise<void> => {

@@ -1,6 +1,8 @@
 export enum IpcEvents {
 	CreateWaitingForConnectionSharingSession = 'create-waiting-for-connection-sharing-session',
 	SetPendingConnectionDevice = 'set-pending-connection-device',
+	ReportPendingViewerDisconnected = 'report-pending-viewer-disconnected',
+	PendingViewerDisconnected = 'pending-viewer-disconnected',
 	UnmarkRoomIDAsTaken = 'unmark-room-id-as-taken',
 	GetAppPath = 'get-app-path',
 	ResetWaitingForConnectionSharingSession = 'reset-waiting-for-connection-sharing-session',
@@ -29,6 +31,7 @@ export enum IpcEvents {
 	SetAppStartedOnce = 'set-app-started-once',
 	DestroySharingSessionById = 'destroy-sharing-session-by-id',
 	GetPort = 'get-port',
+	GetConnectionInfo = 'get-connection-info',
 	OpenExternalLink = 'open-external-link',
 	WriteTextToClipboard = 'write-text-to-clipboard',
 	CheckScreenRecordingPermission = 'check-screen-recording-permission',

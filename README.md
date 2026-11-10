@@ -1,6 +1,6 @@
 # Deskreen CE (Community Edition)
 
-![platform](https://img.shields.io/badge/platform-Windows%20%7C%20MacOS%20%7C%20Linux-lightgrey)
+![platform](https://img.shields.io/badge/platform-Ubuntu-lightgrey)
 (Over 2M downloads during 5 years since launch)
 
 ![Deskreen Logo](https://raw.githubusercontent.com/pavlobu/deskreen/master/resources/icon.png)
@@ -11,7 +11,7 @@
 
 ## [Donate to support Deskreen Open-Source](https://deskreen.com/#contribute)
 
-Deskreen is an `electron.js` based application that uses `WebRTC` to make a live stream of your computer screen to a web browser on any device. It is available for MacOS, Windows and Linux operating systems.
+Deskreen is an `electron.js` based application that uses `WebRTC` to make a live stream of your computer screen to a web browser on any device. This fork targets Ubuntu.
 The current open-source Community Edition version has limited features. If you need more features please consider upgrading to [Pro](https://deskreen.com/download) version for more features when it is released.
 
 ---
@@ -26,7 +26,8 @@ The current open-source Community Edition version has limited features. If you n
 
 ### Prerequisites
 
-You will need to have `node>=v23` `npm>=10` installed.
+On Ubuntu, install `node>=v23`, `npm>=10`, OpenSSL, `flock`, `gdbus`, and a
+running Avahi daemon. The application uses Avahi's `.local` hostname.
 
 
 1. git clone this repo
@@ -38,7 +39,7 @@ You will need to have `node>=v23` `npm>=10` installed.
 
 ## Starting with a Custom Port
 
-To choose the HTTP server port, pass `--port` followed by a number between
+To choose the HTTPS server port, pass `--port` followed by a number between
 1 and 65535. If that port is already in use, Deskreen exits instead of choosing
 a different port. This does not restrict WebRTC media ports.
 
@@ -46,54 +47,37 @@ a different port. This does not restrict WebRTC media ports.
 deskreen-ce --port 8443
 ```
 
-## Starting with Custom Local IP
+## HTTPS setup
 
-You can start Deskreen CE with a custom local IP address using the `--local-ip` or `--ip` CLI flag. This is useful when you want to specify a particular network interface IP address.
+The app creates a private certificate authority on first launch. Before using
+the viewer, transfer **only the public `ca.crt` certificate** shown in the app
+to the viewing device through a trusted channel, verify its SHA-256 fingerprint,
+and install it in a trust store used by the browser. Android browser support for
+user-installed CAs varies. Installing a CA grants it broad trust on the device;
+never share `ca.key` or any other private key. The app does not install the CA
+automatically.
 
-### macOS
+If the CA private key may have been exposed, stop sharing and remove the CA from
+each viewing device's trust store. A replacement CA must be distributed and
+verified again; the app does not silently replace an existing CA.
 
-```bash
-# Using open command (recommended)
-open -a "Deskreen CE" --args --ip 192.168.1.100
+The QR code uses Avahi's `.local` hostname, which requires mDNS to work between
+the devices. A hostname change renews the server certificate without replacing
+the CA. If certificate initialization is interrupted, preserve existing CA
+files and inspect the reported error before attempting recovery.
 
-# Or using the executable directly
-/Applications/Deskreen\ CE.app/Contents/MacOS/Deskreen\ CE --ip 192.168.1.100
+## Tests
 
-# Get your IP automatically and launch
-open -a "Deskreen CE" --args --ip "192.168.1.100"
-```
-
-### Windows
-
-```powershell
-# Using Start-Process (PowerShell)
-Start-Process "Deskreen CE" -ArgumentList "--ip", "192.168.1.100"
-
-# Or using the executable directly
-"C:\Program Files\Deskreen CE\Deskreen CE.exe" --ip 192.168.1.100
-
-# Or from Command Prompt
-start "" "C:\Program Files\Deskreen CE\Deskreen CE.exe" --ip 192.168.1.100
-```
-
-### Linux
-
-```bash
-# If installed via AppImage
-./Deskreen\ CE-*.AppImage --ip 192.168.1.100
-
-# If installed via .deb/.rpm package (usually in /usr/bin or /opt)
-deskreen-ce --ip 192.168.1.100
-
-# Or using full path
-/opt/Deskreen\ CE/deskreen-ce --ip 192.168.1.100
-```
-
-**Note:** Replace `192.168.1.100` with your actual local IP address. You can find your IP using:
-- **macOS/Linux:** `ipconfig getifaddr en0` or `ifconfig | grep "inet "`
-- **Windows:** `ipconfig` (look for IPv4 Address)
-
-When using the `--ip` or `--local-ip` flag, the app will use the specified IP for QR codes and connection URLs, while still monitoring the actual network interface status for WiFi connection detection.
+Run `npm test` for the automated tests. `npm run test:viewer` builds and tests
+the browser viewer with Chrome; set `CHROME_BIN` if Chrome is installed at a
+different path. After `npm run build`, `npm run test:desktop` and
+`npm run test:app` exercise Electron and the full HTTPS signaling application.
+The desktop tests require a graphical session and a working Electron sandbox;
+the application test also requires Avahi and `gdbus`.
+`npm run test:firefox` additionally requires Firefox, geckodriver and NSS
+`certutil`; set `GECKODRIVER` and `CERTUTIL` if they are not on the PATH.
+For Snap Firefox, set `FIREFOX_PROFILE_ROOT="$HOME/snap/firefox/common"` so
+the isolated test profiles are accessible inside the Snap.
 
 ## Maintainer
 

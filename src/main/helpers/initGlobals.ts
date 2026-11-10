@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { ConnectedDevicesService } from '../../features/ConnectedDevicesService';
 import SharingSessionService from '../../features/SharingSessionService';
 import RendererWebrtcHelpersService from '../../features/PeerConnectionHelperRendererService';
@@ -12,10 +13,18 @@ export interface DeskreenGlobal {
 	connectedDevicesService: ConnectedDevicesService;
 	sharingSessionService: SharingSessionService;
 	desktopCapturerSourcesService: DesktopCapturerSourcesService;
-	cliLocalIp?: string;
+	localHostname: string;
+	certificatePath: string;
+	certificateFingerprint: string;
+	ownerToken: string;
 }
 
-export const initGlobals = (appPath: string, cliLocalIp?: string) => {
+export const initGlobals = (
+	appPath: string,
+	localHostname: string,
+	certificatePath: string,
+	certificateFingerprint: string,
+) => {
 	const deskreenGlobal: DeskreenGlobal = global as unknown as DeskreenGlobal;
 
 	deskreenGlobal.appPath = appPath;
@@ -23,11 +32,15 @@ export const initGlobals = (appPath: string, cliLocalIp?: string) => {
 		new RendererWebrtcHelpersService(appPath);
 	deskreenGlobal.roomIDService = new RoomIDService();
 	deskreenGlobal.connectedDevicesService = new ConnectedDevicesService();
+	deskreenGlobal.ownerToken = randomBytes(32).toString('base64url');
 	deskreenGlobal.sharingSessionService = new SharingSessionService(
 		deskreenGlobal.roomIDService,
 		deskreenGlobal.connectedDevicesService,
 		deskreenGlobal.rendererWebrtcHelpersService,
+		deskreenGlobal.ownerToken,
 	);
 	deskreenGlobal.desktopCapturerSourcesService = new DesktopCapturerSources();
-	deskreenGlobal.cliLocalIp = cliLocalIp;
+	deskreenGlobal.localHostname = localHostname;
+	deskreenGlobal.certificatePath = certificatePath;
+	deskreenGlobal.certificateFingerprint = certificateFingerprint;
 };

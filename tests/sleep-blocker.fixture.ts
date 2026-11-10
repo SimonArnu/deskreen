@@ -13,6 +13,7 @@ app
 				'room',
 				{ id: 'id', username: 'name' },
 				undefined as never,
+				'owner-token',
 			);
 		const first = create();
 		const second = create();

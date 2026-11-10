@@ -1,4 +1,4 @@
-import uuid from 'uuid';
+import { v4 as uuidv4 } from 'uuid';
 import RoomIDService from '../../server/RoomIDService';
 import { ConnectedDevicesService } from '../ConnectedDevicesService';
 import RendererWebrtcHelpersService from '../PeerConnectionHelperRendererService';
@@ -14,15 +14,18 @@ export default class SharingSessionService {
 	connectedDevicesService: ConnectedDevicesService;
 	rendererWebrtcHelpersService: RendererWebrtcHelpersService;
 	isCreatingNewSharingSession: boolean;
+	ownerToken: string;
 
 	constructor(
 		_roomIDService: RoomIDService,
 		_connectedDevicesService: ConnectedDevicesService,
 		_rendererWebrtcHelpersService: RendererWebrtcHelpersService,
+		ownerToken: string,
 	) {
 		this.roomIDService = _roomIDService;
 		this.connectedDevicesService = _connectedDevicesService;
 		this.rendererWebrtcHelpersService = _rendererWebrtcHelpersService;
+		this.ownerToken = ownerToken;
 		this.waitingForConnectionSharingSession = null;
 		this.sharingSessions = new Map<string, SharingSession>();
 		this.user = null;
@@ -40,8 +43,8 @@ export default class SharingSessionService {
 	createUser(): Promise<undefined> {
 		return new Promise((resolve) => {
 			if (process.env.RUN_MODE === 'test') resolve(undefined);
-			const username = uuid.v4();
-			const id = uuid.v4();
+			const username = uuidv4();
+			const id = uuidv4();
 
 			this.user = {
 				username,
@@ -107,13 +110,13 @@ export default class SharingSessionService {
 	}
 
 	async createNewSharingSession(_roomID: string): Promise<SharingSession> {
-		const roomID =
-			_roomID || (await this.roomIDService.getSimpleAvailableRoomID());
+		const roomID = _roomID || (await this.roomIDService.getAvailableRoomID());
 		this.roomIDService.markRoomIDAsTaken(roomID);
 		const sharingSession = new SharingSession(
 			roomID,
 			this.user as LocalPeerUser,
 			this.rendererWebrtcHelpersService,
+			this.ownerToken,
 		);
 		this.sharingSessions.set(sharingSession.id, sharingSession);
 		return sharingSession;

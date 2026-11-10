@@ -1,5 +1,6 @@
 export interface Device {
 	id: string;
+	socketId: string;
 	sharingSessionID: string;
 	deviceOS: string;
 	deviceType: string;

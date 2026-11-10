@@ -1,1 +1,1 @@
-export default { username: '', id: '' };
+export default { username: '', id: '', socketId: '' };

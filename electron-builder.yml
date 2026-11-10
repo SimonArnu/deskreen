@@ -14,35 +14,28 @@ extraResources:
     to: client-viewer
 asarUnpack:
   - resources/**
-win:
-  artifactName: ${name}-${version}-${arch}.${ext}
-  executableName: Deskreen CE
-  target:
-    - portable
-    - msi
-  azureSignOptions:
-    publisherName: "SERVICES DE DÉVELOPPEMENT DE LOGICIELS EFFICACES"
-    endpoint: "https://eus.codesigning.azure.net/"
-    codeSigningAccountName: "deskreen-web-app"
-    certificateProfileName: "DeskreenPro"
-nsis: null
-mac:
-  artifactName: ${name}-${version}-${arch}.${ext}
-  hardenedRuntime: true
-  entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
-  extendInfo: []
-  notarize: false
-dmg:
-  artifactName: ${name}-${version}-${arch}.${ext}
 linux:
   target:
     - AppImage
-    - rpm
     - deb
     # - snap
   maintainer: electronjs.org
   category: Utility
+deb:
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+    - avahi-daemon
+    - libglib2.0-bin
+    - openssl
+    - util-linux
 appImage:
   artifactName: ${name}-${version}-${arch}.${ext}
 npmRebuild: false
