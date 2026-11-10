@@ -36,6 +36,16 @@ You will need to have `node>=v23` `npm>=10` installed.
 
 #### for more npm scripts look at `package.json`
 
+## Starting with a Custom Port
+
+To choose the HTTP server port, pass `--port` followed by a number between
+1 and 65535. If that port is already in use, Deskreen exits instead of choosing
+a different port. This does not restrict WebRTC media ports.
+
+```bash
+deskreen-ce --port 8443
+```
+
 ## Starting with Custom Local IP
 
 You can start Deskreen CE with a custom local IP address using the `--local-ip` or `--ip` CLI flag. This is useful when you want to specify a particular network interface IP address.

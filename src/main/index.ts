@@ -96,6 +96,7 @@ import { initGlobals } from './helpers/initGlobals';
 import { ElectronStoreKeys } from '../common/ElectronStoreKeys.enum';
 import { getDeskreenGlobal } from './helpers/getDeskreenGlobal';
 import { startLogBufferCleanup } from './utils/LoggerWithFilePrefix';
+import { parsePort } from './helpers/parsePort.mjs';
 
 const resolvePreloadScriptPath = (entry: 'index' | 'helperRenderer'): string => {
 	const baseDir = join(__dirname, '../preload');
@@ -322,9 +323,20 @@ export default class DeskreenApp {
 			}
 		});
 
+		let port: number | undefined;
+		try {
+			port = parsePort(process.argv);
+		} catch (error) {
+			console.error(error);
+			app.quit();
+			return;
+		}
 		const cliLocalIp = this.parseCliLocalIp();
 		initGlobals(join(__dirname, '..'), cliLocalIp);
-		signalingServer.start();
+		void signalingServer.start(port).catch((error) => {
+			console.error('Failed to start signaling server:', error);
+			app.quit();
+		});
 
 		this.initElectronAppObject();
 	}

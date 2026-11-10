@@ -156,9 +156,10 @@ class DeskreenSignalingServer {
 		socketIOServerStore.setServer(io);
 	}
 
-	async start(): Promise<http.Server> {
+	async start(port?: number): Promise<http.Server> {
 		startPollForInactiveRooms();
-		this.server = await this.callListenOnHttpServer();
+		if (port !== undefined) this.port = port;
+		this.server = await this.callListenOnHttpServer(port !== undefined);
 		return this.server;
 	}
 
@@ -173,7 +174,7 @@ class DeskreenSignalingServer {
 		};
 	}
 
-	async callListenOnHttpServer(): Promise<http.Server> {
+	async callListenOnHttpServer(isPortConfigured = false): Promise<http.Server> {
 		return new Promise<http.Server>((resolve, reject) => {
 			const tryListen = (port: number): void => {
 				// Remove any previous error listeners
@@ -182,6 +183,7 @@ class DeskreenSignalingServer {
 				// Set up error handler
 				this.server.once('error', async (error: NodeJS.ErrnoException) => {
 					if (
+						!isPortConfigured &&
 						error.code === 'EADDRINUSE' &&
 						(port === this.primaryPort || port === this.backupPort)
 					) {

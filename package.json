@@ -10,6 +10,7 @@
     "format": "biome format --write . --max-diagnostics=none",
     "lint": "biome lint . --max-diagnostics=none",
     "lint:error-only": "biome lint --write . --max-diagnostics=none --diagnostic-level=error",
+    "test": "node --test tests/*.test.mjs",
     "typecheck:client-viewer": "tsc --noEmit -p src/client-viewer/tsconfig.app.json --composite false",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
