@@ -1,5 +1,5 @@
-import { BrowserWindow } from 'electron';
-import uuid from 'uuid';
+import { BrowserWindow, powerSaveBlocker } from 'electron';
+import { v4 as uuidv4 } from 'uuid';
 import SharingSessionStatusEnum from './SharingSessionStatusEnum';
 import SharingTypeEnum from './SharingTypeEnum';
 import PeerConnectionHelperRendererService from '../PeerConnectionHelperRendererService';
@@ -23,13 +23,14 @@ export default class SharingSession {
 	peerConnectionHelperRenderer: BrowserWindow | undefined;
 	onDeviceConnectedCallback: undefined | ((device: Device) => void);
 	desktopCapturerSourceID: string;
+	sleepBlockerId: number | null = null;
 
 	constructor(
 		_roomID: string,
 		user: LocalPeerUser,
 		peerConnectionHelperRendererService: PeerConnectionHelperRendererService,
 	) {
-		this.id = uuid.v4();
+		this.id = uuidv4();
 		this.deviceID = '';
 		this.sharingType = SharingTypeEnum.NOT_SET;
 		this.sharingStream = null;
@@ -82,7 +83,15 @@ export default class SharingSession {
 	}
 
 	destroy(): void {
+		this.releaseSleepBlocker();
 		this.peerConnectionHelperRenderer?.close();
+	}
+
+	private releaseSleepBlocker(): void {
+		if (this.sleepBlockerId !== null) {
+			powerSaveBlocker.stop(this.sleepBlockerId);
+			this.sleepBlockerId = null;
+		}
 	}
 
 	setOnDeviceConnectedCallback(callback: (device: Device) => void): void {
@@ -134,6 +143,13 @@ export default class SharingSession {
 	}
 
 	setStatus(newStatus: SharingSessionStatusEnum): void {
+		if (newStatus === SharingSessionStatusEnum.SHARING) {
+			if (this.sleepBlockerId === null) {
+				this.sleepBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+			}
+		} else {
+			this.releaseSleepBlocker();
+		}
 		this.status = newStatus;
 		this.notifyStatusChangeListeners();
 	}
