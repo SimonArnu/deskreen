@@ -1,4 +1,3 @@
-import { app } from 'electron';
 import { ConnectedDevicesService } from '../../features/ConnectedDevicesService';
 import SharingSessionService from '../../features/SharingSessionService';
 import RendererWebrtcHelpersService from '../../features/PeerConnectionHelperRendererService';
@@ -13,8 +12,6 @@ export interface DeskreenGlobal {
 	connectedDevicesService: ConnectedDevicesService;
 	sharingSessionService: SharingSessionService;
 	desktopCapturerSourcesService: DesktopCapturerSourcesService;
-	latestAppVersion: string;
-	currentAppVersion: string;
 	cliLocalIp?: string;
 }
 
@@ -32,7 +29,5 @@ export const initGlobals = (appPath: string, cliLocalIp?: string) => {
 		deskreenGlobal.rendererWebrtcHelpersService,
 	);
 	deskreenGlobal.desktopCapturerSourcesService = new DesktopCapturerSources();
-	deskreenGlobal.latestAppVersion = '';
-	deskreenGlobal.currentAppVersion = app.getVersion();
 	deskreenGlobal.cliLocalIp = cliLocalIp;
 };

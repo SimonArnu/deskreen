@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, H3, Icon, Position, Tag, Tooltip } from '@blueprintjs/core';
+import { Button, H3, Icon, Position, Tooltip } from '@blueprintjs/core';
 import { createStyles, makeStyles } from '@material-ui/core/styles';
 import { Col, Row } from 'react-flexbox-grid';
 import SettingsOverlay from './SettingsOverlay/SettingsOverlay';
@@ -18,12 +18,6 @@ const useStyles = makeStyles(() =>
 			position: 'relative',
 			gap: '12px',
 		},
-		donateButtonRoot: {
-			display: 'flex',
-			justifyContent: 'center',
-			width: '100%',
-			marginTop: '4px',
-		},
 		logoWithAppName: { margin: '0 auto' },
 		appNameHeader: {
 			margin: '0 auto',
@@ -32,47 +26,6 @@ const useStyles = makeStyles(() =>
 			fontSize: '20px',
 			color: '#e2791b',
 			cursor: 'default !important',
-		},
-		donateButton: {
-			borderRadius: '100px',
-			padding: '0',
-			height: '40px',
-			background:
-				'linear-gradient(135deg, hsl(258, 90%, 66%) 0%, hsl(210, 96%, 62%) 30%, hsl(192, 94%, 44%) 70%, hsl(28, 96%, 58%) 100%)',
-			border: 'none',
-			boxShadow:
-				'0 4px 12px rgba(102, 51, 204, 0.4), 0 2px 4px rgba(102, 51, 204, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
-			transition: 'all 0.2s ease',
-			'&:hover': {
-				transform: 'translateY(-1px)',
-				boxShadow:
-					'0 6px 16px rgba(102, 51, 204, 0.5), 0 3px 6px rgba(102, 51, 204, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
-			},
-		},
-		donateButtonContent: {
-			display: 'flex',
-			alignItems: 'center',
-			justifyContent: 'center',
-			height: '100%',
-			padding: '0 16px',
-			gap: '8px',
-		},
-		donateButtonIcon: {
-			width: '20px',
-			height: '20px',
-			display: 'block',
-			verticalAlign: 'middle',
-			flexShrink: 0,
-			filter: 'brightness(1.1) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2))',
-		},
-		donateButtonLabel: {
-			display: 'flex',
-			alignItems: 'center',
-			lineHeight: '1',
-			fontSize: '14px',
-			fontWeight: 600,
-			color: '#ffffff',
-			textShadow: '0 1px 2px rgba(0, 0, 0, 0.2)',
 		},
 		topPanelControlButtonsRoot: {
 			display: 'flex',
@@ -97,11 +50,6 @@ const useStyles = makeStyles(() =>
 		topPanelControlButtonMargin: {
 			cursor: 'default !important',
 			position: 'relative',
-		},
-		updateBadge: {
-			borderRadius: '12px',
-			cursor: 'pointer',
-			boxShadow: 'none',
 		},
 		topPanelIconOfControlButton: {
 			cursor: 'default !important',
@@ -139,8 +87,6 @@ export default function TopPanel({ handleReset }: Props): React.ReactElement {
 	const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
 	const [isConnectedDevicesDrawerOpen, setIsConnectedDevicesDrawerOpen] =
 		React.useState(false);
-	const [latestVersion, setLatestVersion] = React.useState('');
-	const [currentVersion, setCurrentVersion] = React.useState('');
 	const [connectedDevicesCount, setConnectedDevicesCount] = React.useState(0);
 
 	const handleSettingsOpen = React.useCallback(() => {
@@ -154,46 +100,6 @@ export default function TopPanel({ handleReset }: Props): React.ReactElement {
 	const handleToggleConnectedDevicesListDrawer = React.useCallback(() => {
 		setIsConnectedDevicesDrawerOpen(!isConnectedDevicesDrawerOpen);
 	}, [isConnectedDevicesDrawerOpen]);
-
-	const donateTooltipContent = t('get-deskreen-pro-tooltip');
-
-	const handleDonateButtonClick = React.useCallback(() => {
-		window.electron.ipcRenderer.invoke(
-			IpcEvents.OpenExternalLink,
-			'https://deskreen.com/download',
-		);
-	}, []);
-
-	const handleTutorialButtonClick = React.useCallback(() => {
-		window.electron.ipcRenderer.invoke(
-			IpcEvents.OpenExternalLink,
-			'https://deskreen.com/howto',
-		);
-	}, []);
-
-	const handleOpenDownloadPage = React.useCallback((): void => {
-		void window.electron.ipcRenderer.invoke(
-			IpcEvents.OpenExternalLink,
-			'https://deskreen.com/download',
-		);
-	}, []);
-
-	React.useEffect(() => {
-		const fetchVersions = async (): Promise<void> => {
-			const [latest, current] = await Promise.all([
-				window.electron.ipcRenderer.invoke('get-latest-version'),
-				window.electron.ipcRenderer.invoke('get-current-version'),
-			]);
-			if (typeof latest === 'string') {
-				setLatestVersion(latest);
-			}
-			if (typeof current === 'string') {
-				setCurrentVersion(current);
-			}
-		};
-
-		void fetchVersions();
-	}, []);
 
 	React.useEffect(() => {
 		const fetchConnectedDevicesCount = async (): Promise<void> => {
@@ -221,33 +127,6 @@ export default function TopPanel({ handleReset }: Props): React.ReactElement {
 		};
 	}, []);
 
-	const hasUpdate =
-		latestVersion !== '' &&
-		currentVersion !== '' &&
-		latestVersion !== currentVersion;
-
-	const renderDonateButton = (
-		<Tooltip content={donateTooltipContent} position={Position.BOTTOM}>
-			<Button
-				id="top-panel-donate-button"
-				className={classes.donateButton}
-				onClick={handleDonateButtonClick}
-			>
-				<div className={classes.donateButtonContent}>
-					<Icon
-						className={classes.donateButtonIcon}
-						icon="clean"
-						size={20}
-						color="#D4AF37"
-					/>
-					<span className={classes.donateButtonLabel}>
-						{t('get-deskreen-pro')}
-					</span>
-				</div>
-			</Button>
-		</Tooltip>
-	);
-
 	const renderConnectedDevicesListButton = (
 		<div className={classes.topPanelControlButtonMargin}>
 			<Tooltip content={t('connected-devices')} position={Position.BOTTOM}>
@@ -269,24 +148,6 @@ export default function TopPanel({ handleReset }: Props): React.ReactElement {
 					{connectedDevicesCount}
 				</span>
 			)}
-		</div>
-	);
-
-	const renderTutorialButton = (
-		<div className={classes.topPanelControlButtonMargin}>
-			<Tooltip content={t('tutorial')} position={Position.BOTTOM}>
-				<Button
-					id="top-panel-tutorial-button"
-					className={classes.topPanelControlButton}
-					onClick={handleTutorialButtonClick}
-				>
-					<Icon
-						className={classes.topPanelIconOfControlButton}
-						icon="learning"
-						size={22}
-					/>
-				</Button>
-			</Tooltip>
 		</div>
 	);
 
@@ -348,33 +209,12 @@ export default function TopPanel({ handleReset }: Props): React.ReactElement {
 				<Row middle="xs" center="xs" style={{ width: '100%' }}>
 					<Col>{renderLogoWithAppName}</Col>
 				</Row>
-				<div className={classes.donateButtonRoot}>{renderDonateButton}</div>
 				<div className={classes.topPanelControlsWrapper}>
 					<div className={classes.topPanelControlButtonsRoot}>
 						{renderConnectedDevicesListButton}
 						{renderHelpButton}
-						{renderTutorialButton}
 						{renderSettingsButton}
 					</div>
-					{hasUpdate ? (
-						<Tag
-							minimal
-							intent="success"
-							round
-							className={classes.updateBadge}
-							role="button"
-							onClick={handleOpenDownloadPage}
-							onKeyDown={(event) => {
-								if (event.key === 'Enter' || event.key === ' ') {
-									event.preventDefault();
-									handleOpenDownloadPage();
-								}
-							}}
-							tabIndex={0}
-						>
-							{t('new-version-available')}
-						</Tag>
-					) : null}
 				</div>
 			</div>
 			{isSettingsOpen ? (

@@ -13,7 +13,6 @@ import {
 	Position,
 	Popover,
 	Classes,
-	H3,
 } from '@blueprintjs/core';
 import screenfull from 'screenfull';
 import { useTranslation } from 'react-i18next';
@@ -27,12 +26,6 @@ import {
 import { handlePlayerToggleFullscreen } from './handlePlayerToggleFullscreen';
 import initScreenfullOnChange from './initScreenfullOnChange';
 import { ScreenSharingSource } from '../../features/PeerConnection/ScreenSharingSourceEnum';
-import {
-	trackAnalyticsEvent,
-	setConsentStatus,
-	updateAnalyticsConsent,
-} from '../../utils/analytics';
-import PrivacyControlDialog from '../PrivacyControlDialog';
 import './index.css';
 
 const videoQualityButtonStyle: React.CSSProperties = {
@@ -71,7 +64,6 @@ function PlayerControlPanel(props: PlayerControlPanelProps) {
 	const isFullScreenAPIAvailable = screenfull.isEnabled;
 
 	const [isFullScreenOn, setIsFullScreenOn] = useState(false);
-	const [isPrivacyDialogOpen, setIsPrivacyDialogOpen] = useState(false);
 
 	useEffect(() => {
 		const cleanup = initScreenfullOnChange(setIsFullScreenOn);
@@ -88,48 +80,19 @@ function PlayerControlPanel(props: PlayerControlPanelProps) {
 		return result;
 	}, [setIsFullScreenOn]);
 
-	const handleLogoClick = useCallback(() => {
-		trackAnalyticsEvent('logo_clicked', {
-			destination: 'https://deskreen.com',
-		});
-		window.open('https://deskreen.com', '_blank');
-	}, []);
-
-	const handleContributeClick = useCallback(() => {
-		trackAnalyticsEvent('contribute_clicked', {
-			destination: 'https://deskreen.com/download',
-		});
-		window.open('https://deskreen.com/download', '_blank');
-	}, []);
-
 	const handlePlayPauseClick = useCallback(() => {
-		const nextAction = isPlaying ? 'pause' : 'play';
-		trackAnalyticsEvent(
-			nextAction === 'play' ? 'play_button_clicked' : 'pause_button_clicked',
-			{
-				target_state: nextAction === 'play' ? 'playing' : 'paused',
-			},
-		);
 		handleClickPlayPause();
-	}, [handleClickPlayPause, isPlaying]);
+	}, [handleClickPlayPause]);
 
 	const handleVideoQualitySelect = useCallback(
 		(quality: VideoQualityType) => {
-			if (selectedVideoQuality !== quality) {
-				trackAnalyticsEvent('video_quality_selected', {
-					quality,
-				});
-			}
 			setVideoQuality(quality);
 		},
-		[selectedVideoQuality, setVideoQuality],
+		[setVideoQuality],
 	);
 
 	const handleDefaultPlayerToggle = useCallback(() => {
 		const nextState = !isDefaultPlayerTurnedOn;
-		trackAnalyticsEvent('default_player_toggled', {
-			state: nextState ? 'on' : 'off',
-		});
 		onSwitchChangedCallback(nextState);
 	}, [isDefaultPlayerTurnedOn, onSwitchChangedCallback]);
 
@@ -137,136 +100,17 @@ function PlayerControlPanel(props: PlayerControlPanelProps) {
 		const result = isDefaultPlayerTurnedOn
 			? handleClickFullscreenWhenDefaultPlayerIsOn()
 			: handleClickFullscreen();
-		if (result === 'failed') {
-			trackAnalyticsEvent('fullscreen_toggle_failed', {
-				player_mode: isDefaultPlayerTurnedOn ? 'default' : 'custom',
-			});
-			return;
-		}
-		trackAnalyticsEvent('fullscreen_toggled', {
-			state: result === 'entered' ? 'on' : 'off',
-			player_mode: isDefaultPlayerTurnedOn ? 'default' : 'custom',
-		});
+		if (result === 'failed') console.warn('Unable to toggle fullscreen');
 	}, [
 		handleClickFullscreen,
 		handleClickFullscreenWhenDefaultPlayerIsOn,
 		isDefaultPlayerTurnedOn,
 	]);
 
-	const handlePrivacyControlClick = useCallback(() => {
-		setIsPrivacyDialogOpen(true);
-	}, []);
-
-	const handlePrivacyDialogClose = useCallback(() => {
-		setIsPrivacyDialogOpen(false);
-	}, []);
-
-	const handlePrivacyAccept = useCallback(() => {
-		setConsentStatus('accepted');
-		updateAnalyticsConsent('accepted');
-		setIsPrivacyDialogOpen(false);
-	}, []);
-
-	const handlePrivacyOptOut = useCallback(() => {
-		setConsentStatus('opted-out');
-		updateAnalyticsConsent('opted-out');
-		setIsPrivacyDialogOpen(false);
-	}, []);
-
 	return (
 		<>
-			<PrivacyControlDialog
-				isOpen={isPrivacyDialogOpen}
-				onClose={handlePrivacyDialogClose}
-				onAccept={handlePrivacyAccept}
-				onOptOut={handlePrivacyOptOut}
-			/>
 			<Card elevation={4}>
 				<Row between="xs" middle="xs">
-					<Col xs={12} md={3}>
-						<Row middle="xs" start="xs">
-							<Col xs>
-								<Tooltip
-									content={t('Click to visit our website')}
-									position={Position.BOTTOM}
-								>
-									<Button minimal onClick={handleLogoClick}>
-										<Row middle="xs">
-											<img
-												src="/img/logo512.png"
-												alt="logo"
-												style={{ height: '72px', marginRight: '12px' }}
-											/>
-											<H3 style={{ margin: 0 }}>Deskreen CE Viewer</H3>
-										</Row>
-									</Button>
-								</Tooltip>
-							</Col>
-							<Col xs>
-								<Tooltip
-									content={t('get-deskreen-pro-tooltip')}
-									position={Position.BOTTOM}
-								>
-									<Button
-										style={{
-											borderRadius: '100px',
-											marginLeft: '8px',
-											padding: '8px 18px',
-											minHeight: '36px',
-											background:
-												'linear-gradient(135deg, hsl(258, 90%, 66%) 0%, hsl(210, 96%, 62%) 30%, hsl(192, 94%, 44%) 70%, hsl(28, 96%, 58%) 100%)',
-											border: 'none',
-											boxShadow:
-												'0 4px 12px rgba(102, 51, 204, 0.4), 0 2px 4px rgba(102, 51, 204, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
-											transition: 'all 0.2s ease',
-										}}
-										onClick={handleContributeClick}
-										onMouseEnter={(e) => {
-											e.currentTarget.style.transform = 'translateY(-1px)';
-											e.currentTarget.style.boxShadow =
-												'0 6px 16px rgba(102, 51, 204, 0.5), 0 3px 6px rgba(102, 51, 204, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)';
-										}}
-										onMouseLeave={(e) => {
-											e.currentTarget.style.transform = 'translateY(0)';
-											e.currentTarget.style.boxShadow =
-												'0 4px 12px rgba(102, 51, 204, 0.4), 0 2px 4px rgba(102, 51, 204, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2)';
-										}}
-									>
-										<div
-											style={{
-												display: 'flex',
-												alignItems: 'center',
-												gap: '8px',
-											}}
-										>
-											<Icon
-												icon="clean"
-												size={20}
-												color="#D4AF37"
-												style={{
-													flexShrink: 0,
-													filter:
-														'brightness(1.1) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2))',
-												}}
-											/>
-											<Text
-												style={{
-													lineHeight: '1',
-													whiteSpace: 'nowrap',
-													fontSize: '14px',
-													fontWeight: '600',
-													color: '#ffffff',
-													textShadow: '0 1px 2px rgba(0, 0, 0, 0.2)',
-												}}
-											>
-												{t('get-deskreen-pro')}
-											</Text>
-										</div>
-									</Button>
-								</Tooltip>
-							</Col>
-						</Row>
-					</Col>
 					<Col xs={12} md={5}>
 						<Row center="xs" style={{ height: '42px' }}>
 							<ButtonGroup
@@ -308,34 +152,6 @@ function PlayerControlPanel(props: PlayerControlPanelProps) {
 									content={
 										<>
 											<H5>{`${t('Video Settings')}:`}</H5>
-											<Divider />
-											<Row
-												style={{
-													justifyContent: 'center',
-												}}
-											>
-												<Tooltip
-													content={t('flip-the-screen-is-pro-version-only')}
-													position={Position.TOP}
-												>
-													<span
-														style={{
-															display: 'block',
-															width: '100%',
-															textAlign: 'center',
-														}}
-													>
-														<Button
-															icon="key-tab"
-															minimal
-															style={videoQualityButtonStyle}
-															disabled={true}
-														>
-															{t('Flip')}
-														</Button>
-													</span>
-												</Tooltip>
-											</Row>
 											<Divider />
 											{Object.values(VideoQuality).map(
 												(q: VideoQualityType) => {
@@ -437,18 +253,6 @@ function PlayerControlPanel(props: PlayerControlPanelProps) {
 										marginBottom: '12px',
 									}}
 								/>
-								<Button
-									minimal
-									icon="shield"
-									onClick={handlePrivacyControlClick}
-									style={{
-										width: 'fit-content',
-										marginLeft: 'auto',
-										color: '#5C7080',
-									}}
-								>
-									{t('Privacy Settings')}
-								</Button>
 							</Col>
 						</Row>
 					</Col>

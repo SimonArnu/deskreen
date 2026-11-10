@@ -103,21 +103,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfuse2
 
-      - name: Create .env file for client-viewer with Google Analytics tag (macOS)
-        if: ${{ matrix.platform == 'macos' }}
-        run: |
-          echo "VITE_CLIENT_VIEWER_GA_TAG=${{ secrets.CLIENT_VIEWER_GA_TAG_MACOS }}" > ./src/client-viewer/.env
-
-      - name: Create .env file for client-viewer with Google Analytics tag (Windows)
-        if: ${{ matrix.platform == 'windows' }}
-        run: |
-          echo "VITE_CLIENT_VIEWER_GA_TAG=${{ secrets.CLIENT_VIEWER_GA_TAG_WINDOWS }}" > ./src/client-viewer/.env
-
-      - name: Create .env file for client-viewer with Google Analytics tag (Linux)
-        if: ${{ matrix.platform == 'linux' }}
-        run: |
-          echo "VITE_CLIENT_VIEWER_GA_TAG=${{ secrets.CLIENT_VIEWER_GA_TAG_LINUX }}" > ./src/client-viewer/.env
-
       - name: npm build on Windows
         if: ${{ matrix.platform == 'windows' }}
         shell: pwsh

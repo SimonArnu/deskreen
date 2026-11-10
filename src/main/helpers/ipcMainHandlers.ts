@@ -111,14 +111,6 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 		deskreenGlobal.sharingSessionService.sharingSessions.clear();
 	});
 
-	ipcMain.handle('get-latest-version', () => {
-		return getDeskreenGlobal().latestAppVersion;
-	});
-
-	ipcMain.handle('get-current-version', () => {
-		return getDeskreenGlobal().currentAppVersion;
-	});
-
 	ipcMain.handle('get-local-lan-ip', async () => {
 		const deskreenGlobal = getDeskreenGlobal();
 		if (deskreenGlobal.cliLocalIp) {

@@ -6,7 +6,7 @@ import {
 overrideGlobalConsole();
 startConsoleRateLimiting();
 
-import { app, shell, BrowserWindow, Notification, screen } from 'electron';
+import { app, shell, BrowserWindow, screen } from 'electron';
 import { join } from 'path';
 import { is, optimizer } from '@electron-toolkit/utils';
 import icon from '../../resources/icon.png?asset';
@@ -89,12 +89,9 @@ import { store } from '../common/deskreen-electron-store';
 import i18n from './configs/i18next.config';
 import { signalingServer } from '../server';
 import MenuBuilder from './menu';
-import installExtensions from './utils/installExtensions';
-import getNewVersionTag from './utils/getNewVersionTag';
 import { initIpcMainHandlers } from './helpers/ipcMainHandlers';
 import { initGlobals } from './helpers/initGlobals';
 import { ElectronStoreKeys } from '../common/ElectronStoreKeys.enum';
-import { getDeskreenGlobal } from './helpers/getDeskreenGlobal';
 import { startLogBufferCleanup } from './utils/LoggerWithFilePrefix';
 import { parsePort } from './helpers/parsePort.mjs';
 import { mainWindowPosition } from './helpers/mainWindowPosition.mjs';
@@ -115,8 +112,6 @@ export default class DeskreenApp {
 	mainWindow: BrowserWindow | null = null;
 
 	menuBuilder: MenuBuilder | null = null;
-
-	latestAppVersion = '';
 
 	initElectronAppObject(): void {
 		/**
@@ -143,7 +138,6 @@ export default class DeskreenApp {
 
 			await this.createWindow();
 
-			void this.checkForLatestVersionAndNotify();
 		});
 
 		app.on('browser-window-created', (_, window) => {
@@ -165,51 +159,7 @@ export default class DeskreenApp {
 		);
 	}
 
-	private async checkForLatestVersionAndNotify(): Promise<void> {
-		try {
-			const latestAppVersion = await getNewVersionTag();
-			const deskreenGlobal = getDeskreenGlobal();
-			deskreenGlobal.latestAppVersion = latestAppVersion;
-			this.latestAppVersion = latestAppVersion;
-
-			if (
-				latestAppVersion === '' ||
-				latestAppVersion === deskreenGlobal.currentAppVersion ||
-				!Notification.isSupported()
-			) {
-				return;
-			}
-
-			this.showUpdateNotification(latestAppVersion);
-		} catch (error) {
-			console.error('Failed to check for Deskreen updates', error);
-		}
-	}
-
-	private showUpdateNotification(latestAppVersion: string): void {
-		const deskreenGlobal = getDeskreenGlobal();
-		const notification = new Notification({
-			title: i18n.t('deskreen-ce-update-is-available'),
-			body: `${i18n.t('your-current-version-is')} ${deskreenGlobal.currentAppVersion} | ${i18n.t(
-				'click-to-download-new-updated-version',
-			)} ${latestAppVersion}`,
-		});
-
-		notification.on('click', () => {
-			void shell.openExternal('https://deskreen.com/download');
-		});
-
-		notification.show();
-	}
-
 	async createWindow(): Promise<void> {
-		if (
-			process.env.NODE_ENV === 'development' ||
-			process.env.DEBUG_PROD === 'true'
-		) {
-			await installExtensions();
-		}
-
 		const width = 940;
 		const height = 640;
 		const position = mainWindowPosition(screen.getPrimaryDisplay().workArea, width, height);
