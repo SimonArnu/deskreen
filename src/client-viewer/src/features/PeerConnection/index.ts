@@ -4,7 +4,10 @@ import { UAParser } from 'ua-parser-js';
 import type { Socket } from 'socket.io-client';
 import type { LocalPeerUser } from '../../../../common/LocalPeerUser';
 import type { SendEncryptedMessagePayload } from '../../../../common/SendEncryptedMessagePayload';
-import { connect as connectSocket } from '../../utils/socket';
+import {
+	connect as connectSocket,
+	watchBrowserTrust,
+} from '../../utils/socket';
 import {
 	prepare as prepareMessage,
 	type ProcessedPayload,
@@ -259,6 +262,9 @@ export default class PeerConnection {
 		}
 
 		socket.removeAllListeners();
+		watchBrowserTrust(socket, () =>
+			setAndShowErrorDialogMessage(this, ErrorMessage.TRUST_STORAGE_ERROR),
+		);
 
 		const userCreatedCallback = (createdUser: LocalPeerUser) => {
 			this.user = createdUser;

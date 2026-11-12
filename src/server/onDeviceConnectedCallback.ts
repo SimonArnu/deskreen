@@ -3,8 +3,9 @@ import { getDeskreenGlobal } from '../main/helpers/getDeskreenGlobal';
 import { deskreenApp } from '../main';
 import { Device } from '../common/Device';
 import SharingSessionStatusEnum from '../features/SharingSessionService/SharingSessionStatusEnum';
+import { approveTrustedViewer, hasTrustedCredential } from './approval';
 
-export function onDeviceConnectedCallback(device: Device): void {
+export async function onDeviceConnectedCallback(device: Device): Promise<void> {
 	const deskreenGlobal = getDeskreenGlobal();
 	const { connectedDevicesService, sharingSessionService } = deskreenGlobal;
 	if (!connectedDevicesService.isSlotAvailable()) {
@@ -17,8 +18,30 @@ export function onDeviceConnectedCallback(device: Device): void {
 		return;
 	}
 	connectedDevicesService.setPendingConnectionDevice(device);
+	const waiting = sharingSessionService.waitingForConnectionSharingSession;
+	const isCurrent = () =>
+		waiting?.id === device.sharingSessionID &&
+		sharingSessionService.waitingForConnectionSharingSession === waiting &&
+		connectedDevicesService.pendingConnectionDevice.socketId ===
+			device.socketId;
+	let isTrusted = false;
+	if (waiting && isCurrent() && hasTrustedCredential(device.socketId)) {
+		try {
+			isTrusted = await approveTrustedViewer(
+				waiting.roomID,
+				device.socketId,
+				isCurrent,
+			);
+		} catch (error) {
+			console.error('Failed to approve trusted browser:', error);
+		}
+		if (!isCurrent()) return;
+		if (isTrusted && !hasTrustedCredential(device.socketId)) return;
+		if (isTrusted) waiting.setStatus(SharingSessionStatusEnum.CONNECTED);
+	}
+	if (!isCurrent()) return;
 	deskreenApp.mainWindow?.webContents.send(
 		IpcEvents.SetPendingConnectionDevice,
-		device,
+		{ ...device, isTrusted },
 	);
 }

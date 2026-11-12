@@ -9,4 +9,5 @@ export interface Device {
 	deviceScreenWidth: number;
 	deviceScreenHeight: number;
 	deviceRoomId: string;
+	isTrusted?: boolean;
 }

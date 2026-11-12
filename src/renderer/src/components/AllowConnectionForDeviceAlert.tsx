@@ -1,5 +1,5 @@
-import React from 'react';
-import { Intent, Alert, H4 } from '@blueprintjs/core';
+import React, { useEffect, useState } from 'react';
+import { Intent, Alert, Checkbox, H4 } from '@blueprintjs/core';
 import DeviceInfoCallout from './DeviceInfoCallout';
 import { Device } from '../../../common/Device';
 import { useTranslation } from 'react-i18next';
@@ -8,7 +8,7 @@ interface AllowConnectionForDeviceAlertProps {
 	device: Device | null;
 	isOpen: boolean;
 	onCancel: () => void;
-	onConfirm: () => void;
+	onConfirm: (remember: boolean) => void;
 }
 
 const AllowConnectionForDeviceAlert: React.FC<
@@ -18,6 +18,10 @@ const AllowConnectionForDeviceAlert: React.FC<
 	const { t } = useTranslation();
 	const denyText = t('deny');
 	const allowText = t('allow');
+	const [remember, setRemember] = useState(false);
+	useEffect(() => {
+		if (isOpen && device?.socketId) setRemember(false);
+	}, [isOpen, device?.socketId]);
 
 	return (
 		<Alert
@@ -28,7 +32,7 @@ const AllowConnectionForDeviceAlert: React.FC<
 			intent={Intent.DANGER}
 			isOpen={isOpen}
 			onCancel={onCancel}
-			onConfirm={onConfirm}
+			onConfirm={() => onConfirm(remember)}
 			transitionDuration={0}
 			// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 			// @ts-ignore
@@ -42,6 +46,12 @@ const AllowConnectionForDeviceAlert: React.FC<
 				deviceBrowser={device?.deviceBrowser}
 				deviceRoomId={device?.deviceRoomId}
 			/>
+			<Checkbox
+				checked={remember}
+				onChange={(event) => setRemember(event.currentTarget.checked)}
+			>
+				{t('Remember this browser')}
+			</Checkbox>
 		</Alert>
 	);
 };

@@ -30,6 +30,7 @@ import AllowConnectionForDeviceAlert from '@renderer/components/AllowConnectionF
 import { useTranslation } from 'react-i18next';
 import { TFunction } from 'i18next';
 import { showMessageFromNewToaster } from '@renderer/utils/showMessageFromNewToaster';
+import TrustedBrowsers from '@renderer/components/TrustedBrowsers';
 
 const useStyles = makeStyles(() =>
 	createStyles({
@@ -168,34 +169,46 @@ const DeskreenStepper = ({
 		);
 	};
 
-	const handleConfirmAlert = useCallback(async () => {
-		const allowed = await window.electron.ipcRenderer.invoke(
-			IpcEvents.SetDeviceConnectedStatus,
-			{
-				socketId: pendingConnectionDevice?.socketId,
-				sharingSessionId: pendingConnectionDevice?.sharingSessionID,
-			},
-		);
-		if (!allowed) {
-			handleReset();
-			void showMessageFromNewToaster(
-				t(
-					'The device disconnected before it could be approved. Please reconnect.',
-				),
-			);
-			return;
-		}
-		setIsAllowDeviceAlertOpen(false);
-		setIsUserAllowedConnection(true);
-		handleNext();
-	}, [
-		handleNext,
-		handleReset,
-		pendingConnectionDevice,
-		setIsAllowDeviceAlertOpen,
-		setIsUserAllowedConnection,
-		t,
-	]);
+	const handleConfirmAlert = useCallback(
+		async (remember: boolean) => {
+			let allowed: boolean;
+			try {
+				allowed = await window.electron.ipcRenderer.invoke(
+					IpcEvents.SetDeviceConnectedStatus,
+					{
+						socketId: pendingConnectionDevice?.socketId,
+						sharingSessionId: pendingConnectionDevice?.sharingSessionID,
+						remember,
+					},
+				);
+			} catch {
+				void showMessageFromNewToaster(
+					t('Could not approve or remember this browser. Please try again.'),
+				);
+				return;
+			}
+			if (!allowed) {
+				handleReset();
+				void showMessageFromNewToaster(
+					t(
+						'The device disconnected before it could be approved. Please reconnect.',
+					),
+				);
+				return;
+			}
+			setIsAllowDeviceAlertOpen(false);
+			setIsUserAllowedConnection(true);
+			handleNext();
+		},
+		[
+			handleNext,
+			handleReset,
+			pendingConnectionDevice,
+			setIsAllowDeviceAlertOpen,
+			setIsUserAllowedConnection,
+			t,
+		],
+	);
 
 	useEffect(() => {
 		window.electron.ipcRenderer.invoke(
@@ -207,7 +220,13 @@ const DeskreenStepper = ({
 			device: Device,
 		): void => {
 			setPendingConnectionDevice(device);
-			setIsAllowDeviceAlertOpen(true);
+			if (device.isTrusted) {
+				setIsAllowDeviceAlertOpen(false);
+				setIsUserAllowedConnection(true);
+				setActiveStep(1);
+			} else {
+				setIsAllowDeviceAlertOpen(true);
+			}
 		};
 
 		window.electron.ipcRenderer.on(
@@ -221,7 +240,12 @@ const DeskreenStepper = ({
 				handlePendingConnectionDevice,
 			);
 		};
-	}, [setIsAllowDeviceAlertOpen, setPendingConnectionDevice]);
+	}, [
+		setActiveStep,
+		setIsAllowDeviceAlertOpen,
+		setIsUserAllowedConnection,
+		setPendingConnectionDevice,
+	]);
 
 	useEffect(() => {
 		const handlePendingViewerDisconnected = () => {
@@ -354,6 +378,7 @@ const DeskreenStepper = ({
 					onCancel={handleCancelAlert}
 					onConfirm={handleConfirmAlert}
 				/>
+				<TrustedBrowsers />
 			</>
 			<Dialog isOpen={isNoWiFiError} autoFocus usePortal>
 				<Grid>

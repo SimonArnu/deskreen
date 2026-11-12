@@ -132,6 +132,15 @@ export async function openTrustedFirefox({ hostname, port, room, caPath }) {
 		});
 		await navigate(url);
 		return {
+			async execute(script) {
+				return call(`/session/${activeSession}/execute/sync`, 'POST', {
+					script,
+					args: [],
+				});
+			},
+			async navigate(url) {
+				return navigate(url);
+			},
 			async text() {
 				return call(`/session/${activeSession}/execute/sync`, 'POST', {
 					script: 'return document.body.innerText',

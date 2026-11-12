@@ -40,7 +40,11 @@ const unexpected = result.stderr
 	);
 if (unexpected.length)
 	throw new Error(`Unexpected Electron output:\n${unexpected.join('\n')}`);
-if (process.argv[2] === 'tests/signaling.fixture.ts') {
+if (
+	['tests/signaling.fixture.ts', 'tests/trusted-signaling.fixture.ts'].includes(
+		process.argv[2],
+	)
+) {
 	const lines = result.stdout.trim().split('\n');
 	if (
 		/skipping desktop capturer auto refresh on wayland session$/.test(lines[0])
@@ -49,7 +53,9 @@ if (process.argv[2] === 'tests/signaling.fixture.ts') {
 	const expected = [
 		/Deskreen CE signaling server is online at port 0$/,
 		/Server available at https:\/\/deskreen\.local:0$/,
-		/^Concurrent viewers cannot both enter the signaling room\.$/,
+		process.argv[2] === 'tests/signaling.fixture.ts'
+			? /^Concurrent viewers cannot both enter the signaling room\.$/
+			: /^Trusted viewers require explicit enrollment and can be revoked\.$/,
 	];
 	if (
 		lines.length !== expected.length ||

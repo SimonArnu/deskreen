@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { X509Certificate } from 'node:crypto';
+import { randomBytes, X509Certificate } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { request } from 'node:https';
@@ -45,6 +45,7 @@ let devtools;
 let viewer;
 let observer;
 let replacement;
+let returning;
 let failure;
 let successMessage;
 const signalingEvents = [];
@@ -220,8 +221,118 @@ try {
 			);
 			assert.match(pending.deviceBrowser, /Firefox/);
 			assert.match(await firefox.text(), /waiting/i);
+			assert.equal(
+				await firefox.execute(
+					"return localStorage.getItem('deskreen-trusted-browser')",
+				),
+				null,
+			);
+			assert.equal(
+				(
+					await evaluate(
+						"window.electron.ipcRenderer.invoke('get-trusted-browsers')",
+					)
+				).length,
+				0,
+			);
+			await waitFor(
+				"Boolean([...document.querySelectorAll('label')].find(label => label.textContent.includes('Remember this browser')))",
+				Boolean,
+				'The remember browser checkbox was not displayed',
+			);
+			assert.equal(
+				await evaluate(`(() => {
+				const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes('Remember this browser'));
+				label.querySelector('input').click();
+				return label.querySelector('input').checked;
+			})()`),
+				true,
+			);
+			await evaluate(`(() => {
+				const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes('Remember this browser'));
+				const alert = label.closest('[role="alertdialog"]');
+				const button = [...alert.querySelectorAll('button')].find(item => item.textContent.trim().toLowerCase() === 'allow');
+				button.click();
+			})()`);
+			const trustDeadline = Date.now() + 8000;
+			let saved = false;
+			while (Date.now() < trustDeadline) {
+				saved = await firefox.execute(
+					"return !!localStorage.getItem('deskreen-trusted-browser')",
+				);
+				if (saved) break;
+				await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+			assert.equal(
+				saved,
+				true,
+				`Firefox did not save its credential. Host: ${await evaluate('document.body.innerText')}; viewer: ${await firefox.text()}; trust count: ${(await evaluate("window.electron.ipcRenderer.invoke('get-trusted-browsers')")).length}`,
+			);
+			assert.equal(
+				(
+					await evaluate(
+						"window.electron.ipcRenderer.invoke('get-trusted-browsers')",
+					)
+				).length,
+				1,
+			);
+			await firefox.navigate('about:blank');
+			const newRoom = await waitFor(
+				"window.electron.ipcRenderer.invoke('get-waiting-for-connection-sharing-session-room-id')",
+				(value) => Boolean(value && value !== room),
+				'A new room was not created after Firefox disconnected',
+			);
+			await firefox.navigate(`https://${hostname}:${port}/${newRoom}`);
+			await waitFor(
+				'document.body.innerText',
+				(value) => /choose entire screen or app window/i.test(value),
+				'Trusted Firefox did not reach source selection',
+			);
+			assert.equal(
+				(
+					await evaluate(
+						"window.electron.ipcRenderer.invoke('get-connected-devices-list')",
+					)
+				).length,
+				0,
+			);
+			await evaluate(
+				"[...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Trusted browsers').click()",
+			);
+			await waitFor(
+				'document.body.innerText',
+				(value) => /Firefox.*Ubuntu/.test(value),
+				'The trusted browser was not listed',
+			);
+			await evaluate(
+				"[...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Revoke').click()",
+			);
+			await waitFor(
+				"window.electron.ipcRenderer.invoke('get-trusted-browsers')",
+				(value) => value.length === 0,
+				'The browser trust was not revoked',
+			);
+			await waitFor(
+				"window.electron.ipcRenderer.invoke('get-pending-connection-device')",
+				(value) => !value?.id,
+				'Revoking trust did not disconnect Firefox',
+			);
+			await evaluate(
+				"[...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Close').click()",
+			);
+			const revokedRoom = await waitFor(
+				"window.electron.ipcRenderer.invoke('get-waiting-for-connection-sharing-session-room-id')",
+				(value) => Boolean(value && value !== newRoom),
+				'A new room was not created after revocation',
+			);
+			await firefox.navigate(`https://${hostname}:${port}/${revokedRoom}`);
+			await waitFor(
+				'document.body.innerText',
+				(value) => /someone is trying to connect/i.test(value),
+				'Revoked Firefox was not asked for approval',
+			);
 			successMessage =
-				'Firefox rejected untrusted and wrong-host certificates and reached the approval prompt with the trusted CA.';
+				'Firefox verified HTTPS, paired, reconnected and required approval after revocation.';
 		} finally {
 			await firefox.close();
 		}
@@ -439,9 +550,11 @@ try {
 			replacementRoom,
 			'a new room should be created after a pending viewer disconnects',
 		);
+		const trustToken = randomBytes(32).toString('base64url');
 		replacement = io(`https://127.0.0.1:${port}`, {
 			...socketOptions,
 			query: { roomId: replacementRoom },
+			auth: { candidateToken: trustToken },
 		});
 		await new Promise((resolve, reject) => {
 			const timeout = setTimeout(
@@ -498,10 +611,20 @@ try {
 				}
 			});
 		});
+		const remembered = new Promise((resolve, reject) => {
+			const timeout = setTimeout(
+				() => reject(new Error('Browser was not remembered')),
+				5000,
+			);
+			replacement.once('BROWSER_REMEMBERED', () => {
+				clearTimeout(timeout);
+				resolve();
+			});
+		});
 		const accepted = await devtools.send(
 			'Runtime.evaluate',
 			{
-				expression: `window.electron.ipcRenderer.invoke('set-device-connected-status', ${JSON.stringify({ socketId: replacement.id, sharingSessionId: replacementDevice.sharingSessionID })})`,
+				expression: `window.electron.ipcRenderer.invoke('set-device-connected-status', ${JSON.stringify({ socketId: replacement.id, sharingSessionId: replacementDevice.sharingSessionID, remember: true })})`,
 				awaitPromise: true,
 				returnByValue: true,
 			},
@@ -512,7 +635,11 @@ try {
 			true,
 			'the displayed connected device should be approved',
 		);
-		await allowedMessage;
+		await Promise.all([allowedMessage, remembered]);
+		const trusted = await evaluate(
+			"window.electron.ipcRenderer.invoke('get-trusted-browsers')",
+		);
+		assert.equal(trusted.length, 1);
 		const sharing = await evaluate(
 			"window.electron.ipcRenderer.invoke('start-sharing-on-waiting-for-connection-sharing-session')",
 		);
@@ -538,6 +665,88 @@ try {
 			(value) => value.length === 0,
 			'The device slot was not released after disconnect',
 		);
+		const nextRoom = await waitFor(
+			"window.electron.ipcRenderer.invoke('get-waiting-for-connection-sharing-session-room-id')",
+			(value) => Boolean(value && value !== replacementRoom),
+			'A new room was not created for the returning browser',
+		);
+		returning = io(`https://127.0.0.1:${port}`, {
+			...socketOptions,
+			query: { roomId: nextRoom },
+			auth: { trustToken },
+		});
+		const returningAllowed = new Promise((resolve, reject) => {
+			const timeout = setTimeout(
+				() => reject(new Error('Trusted browser was not approved')),
+				8000,
+			);
+			returning.on('MESSAGE', (payload) => {
+				if (payload.type === 'ALLOWED_TO_CONNECT') {
+					clearTimeout(timeout);
+					resolve();
+				}
+			});
+		});
+		returning.on('ROOM_READY', () =>
+			returning.emit('USER_ENTER', { username: 'returning' }),
+		);
+		returning.on('USER_ENTER', (payload) => {
+			if (payload.users.length >= 2)
+				returning.emit('MESSAGE', {
+					type: 'DEVICE_DETAILS',
+					payload: {
+						deviceType: 'tablet',
+						os: 'Android',
+						browser: 'Firefox',
+						deviceScreenWidth: 1280,
+						deviceScreenHeight: 800,
+					},
+				});
+		});
+		await returningAllowed;
+		assert.equal(
+			(
+				await evaluate(
+					"window.electron.ipcRenderer.invoke('get-connected-devices-list')",
+				)
+			).length,
+			0,
+			'Trust must not start sharing automatically',
+		);
+		assert.equal(
+			await evaluate(
+				"window.electron.ipcRenderer.invoke('start-sharing-on-waiting-for-connection-sharing-session')",
+			),
+			true,
+		);
+		const revokedDisconnect = new Promise((resolve, reject) => {
+			const timeout = setTimeout(
+				() => reject(new Error('Revocation did not disconnect viewer')),
+				5000,
+			);
+			returning.once('disconnect', () => {
+				clearTimeout(timeout);
+				resolve();
+			});
+		});
+		assert.equal(
+			await evaluate(
+				`window.electron.ipcRenderer.invoke('revoke-trusted-browser', ${JSON.stringify(trusted[0].id)})`,
+			),
+			true,
+		);
+		await revokedDisconnect;
+		await waitFor(
+			"window.electron.ipcRenderer.invoke('get-connected-devices-list')",
+			(value) => value.length === 0,
+			'Revocation did not stop the active session',
+		);
+		assert.deepEqual(
+			await evaluate(
+				"window.electron.ipcRenderer.invoke('get-trusted-browsers')",
+			),
+			[],
+		);
 		successMessage =
 			'The HTTPS viewer, connection instructions and local signaling helper are available.';
 	}
@@ -547,6 +756,7 @@ try {
 	viewer?.disconnect();
 	observer?.disconnect();
 	replacement?.disconnect();
+	returning?.disconnect();
 	devtools?.close();
 	app.kill('SIGTERM');
 	const exited = await Promise.race([

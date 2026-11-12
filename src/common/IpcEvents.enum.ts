@@ -7,6 +7,8 @@ export enum IpcEvents {
 	GetAppPath = 'get-app-path',
 	ResetWaitingForConnectionSharingSession = 'reset-waiting-for-connection-sharing-session',
 	SetDeviceConnectedStatus = 'set-device-connected-status',
+	GetTrustedBrowsers = 'get-trusted-browsers',
+	RevokeTrustedBrowser = 'revoke-trusted-browser',
 	GetSourceDisplayIDByDesktopCapturerSourceID = 'get-source-display-id-by-desktop-capturer-source-id',
 	DisconnectPeerAndDestroySharingSessionBySessionID = 'disconnect-peer-and-destroy-sharing-session-by-session-id',
 	GetDesktopCapturerSourceIdBySharingSessionId = 'get-desktop-capturer-source-id-by-sharing-session-id',

@@ -66,6 +66,24 @@ the devices. A hostname change renews the server certificate without replacing
 the CA. If certificate initialization is interrupted, preserve existing CA
 files and inspect the reported error before attempting recovery.
 
+## Remembering a browser
+
+When approving a first connection, select **Remember this browser** to skip
+the approval prompt on later visits. You still need the current connection URL
+and must choose and confirm the source to share. Certificate trust is a separate
+first-time step: verify the CA fingerprint and do not bypass certificate errors.
+
+Use **Trusted browsers** in the app to list or revoke them. Revocation disconnects
+an active viewer; a revoked browser must be approved again. Clearing browser
+storage, switching browser profiles, changing the hostname or changing the port
+also requires pairing again. Revoke any entries that are no longer needed.
+
+Trust belongs to a browser profile, not a physical device: anyone who copies or
+steals its stored credential can use it. Revoke trust if the profile or device is
+lost or compromised. If the viewer reports it could not save the credential,
+revoke that entry and pair again. The app stores only a hash of the credential.
+Automatic recovery of a running stream is not yet implemented.
+
 ## Tests
 
 Run `npm test` for the automated tests. `npm run test:viewer` builds and tests

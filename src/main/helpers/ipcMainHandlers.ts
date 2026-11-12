@@ -22,7 +22,13 @@ import { store } from '../../common/deskreen-electron-store';
 import DesktopCapturerSourceType from '../../common/DesktopCapturerSourceType';
 import isLinuxWaylandSession from '../utils/isLinuxWaylandSession';
 import { checkScreenRecordingPermission } from './checkScreenRecordingPermission';
-import { approveViewer, isViewerApproved } from '../../server/approval';
+import {
+	approveViewer,
+	isApprovedSocket,
+	isViewerApproved,
+	revokeTrustedBrowser,
+	trustedBrowserForSocket,
+} from '../../server/approval';
 
 export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 	ipcMain.on('client-changed-language', async (_, newLangCode) => {
@@ -237,7 +243,11 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 		IpcEvents.SetDeviceConnectedStatus,
 		async (
 			_,
-			requested: { socketId?: unknown; sharingSessionId?: unknown },
+			requested: {
+				socketId?: unknown;
+				sharingSessionId?: unknown;
+				remember?: unknown;
+			},
 		) => {
 			const { sharingSessionService, connectedDevicesService } =
 				getDeskreenGlobal();
@@ -254,19 +264,55 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 				sharingSession.id !== requested.sharingSessionId
 			)
 				return false;
-			if (!(await approveViewer(sharingSession.roomID, requested.socketId)))
+			const isCurrent = () =>
+				sharingSessionService.waitingForConnectionSharingSession ===
+					sharingSession &&
+				connectedDevicesService.pendingConnectionDevice.socketId ===
+					requested.socketId &&
+				connectedDevicesService.pendingConnectionDevice.sharingSessionID ===
+					requested.sharingSessionId;
+			if (
+				!(await approveViewer(sharingSession.roomID, requested.socketId, {
+					remember: requested.remember === true,
+					label: `${pending.deviceBrowser} on ${pending.deviceOS}`,
+					isCurrent,
+				}))
+			)
 				return false;
 			if (
 				sharingSessionService.waitingForConnectionSharingSession !==
 					sharingSession ||
 				connectedDevicesService.pendingConnectionDevice.socketId !==
-					requested.socketId
+					requested.socketId ||
+				!isApprovedSocket(sharingSession.roomID, requested.socketId)
 			)
 				return false;
 			sharingSession.setStatus(SharingSessionStatusEnum.CONNECTED);
 			return true;
 		},
 	);
+
+	ipcMain.handle(IpcEvents.GetTrustedBrowsers, () =>
+		getDeskreenGlobal().trustedBrowsers.list(),
+	);
+	ipcMain.handle(IpcEvents.RevokeTrustedBrowser, (_, id: unknown) => {
+		if (typeof id !== 'string') return false;
+		const { connectedDevicesService, sharingSessionService } =
+			getDeskreenGlobal();
+		const active = connectedDevicesService
+			.getDevices()
+			.filter((device) => trustedBrowserForSocket(device.socketId) === id);
+		if (!revokeTrustedBrowser(id)) return false;
+		for (const device of active) {
+			const session = sharingSessionService.sharingSessions.get(
+				device.sharingSessionID,
+			);
+			session?.destroy();
+			sharingSessionService.sharingSessions.delete(device.sharingSessionID);
+			void connectedDevicesService.disconnectDeviceByID(device.id);
+		}
+		return true;
+	});
 
 	ipcMain.handle(
 		IpcEvents.GetSourceDisplayIDByDesktopCapturerSourceID,
@@ -419,7 +465,8 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 			sharingSessionService.waitingForConnectionSharingSession !==
 				sharingSession ||
 			connectedDevicesService.pendingConnectionDevice.socketId !==
-				pendingDevice.socketId
+				pendingDevice.socketId ||
+			!isApprovedSocket(sharingSession.roomID, pendingDevice.socketId)
 		)
 			return false;
 		roomIDService.unmarkRoomIDAsTaken(sharingSession.roomID);
