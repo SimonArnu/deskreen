@@ -6,7 +6,7 @@ import { createServer } from 'node:net';
 import { request } from 'node:https';
 import { request as httpRequest } from 'node:http';
 import { once } from 'node:events';
-import { tmpdir } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { io } from 'socket.io-client';
 import { getLocalHostname } from '../src/main/helpers/localHostname.mts';
@@ -107,6 +107,78 @@ try {
 		req.end();
 	});
 	assert.equal(status, 200);
+	const ipv6Status = await new Promise((resolve, reject) => {
+		const req = request(
+			{ host: '::1', port, servername: hostname, ca: certificates.ca },
+			(res) => {
+				res.resume();
+				res.on('end', () => resolve(res.statusCode));
+			},
+		);
+		req.once('error', reject);
+		req.end();
+	});
+	assert.equal(
+		ipv6Status,
+		200,
+		'HTTPS should be reachable over IPv6 as well as IPv4',
+	);
+	const lanIPv6 = Object.values(networkInterfaces())
+		.flatMap((entries) => entries ?? [])
+		.filter(
+			(entry) =>
+				entry.family === 'IPv6' &&
+				!entry.internal &&
+				entry.cidr &&
+				!entry.address.toLowerCase().startsWith('fe80:'),
+		);
+	for (const address of lanIPv6) {
+		const lanStatus = await new Promise((resolve, reject) => {
+			const req = request(
+				{
+					host: address.address,
+					port,
+					servername: hostname,
+					ca: certificates.ca,
+				},
+				(res) => {
+					res.resume();
+					res.on('end', () => resolve(res.statusCode));
+				},
+			);
+			req.once('error', reject);
+			req.end();
+		});
+		assert.equal(
+			lanStatus,
+			200,
+			'HTTPS should be reachable through the LAN IPv6 address',
+		);
+	}
+	if (lanIPv6.length > 0) {
+		await assert.rejects(
+			new Promise((resolve, reject) => {
+				const req = request(
+					{
+						host: lanIPv6[0].address,
+						localAddress: '::1',
+						port,
+						servername: hostname,
+						ca: certificates.ca,
+					},
+					resolve,
+				);
+				req.once('error', reject);
+				req.end();
+			}),
+			'A non-matching IPv6 source must not reach the LAN listener',
+		);
+	}
+	if (lanIPv6.length === 0) {
+		console.log(
+			'LAN IPv6 check skipped: no non-loopback IPv6 address is available.',
+		);
+	}
 	await assert.rejects(
 		new Promise((resolve, reject) => {
 			const req = httpRequest({ host: '127.0.0.1', port }, resolve);

@@ -6,6 +6,7 @@
 
 import http from 'http';
 import https from 'https';
+import { networkInterfaces } from 'node:os';
 import Koa from 'koa';
 import { Server, type Socket } from 'socket.io';
 import cors from 'kcors';
@@ -24,6 +25,7 @@ import { getClientViewerDistPath } from './getClientViewerDistPath';
 import { isAllowedOrigin, isOwnerCredential } from './origin.mjs';
 import { AttemptLimit } from './AttemptLimit.mjs';
 import { roomHash } from './roomHash.mjs';
+import { isAllowedPeer } from './ipv6Access.mjs';
 
 const { hostname, primaryPort, backupPort } = config;
 
@@ -124,6 +126,19 @@ class DeskreenSignalingServer {
 		}
 
 		this.server = https.createServer(credentials, this.app.callback());
+		this.server.prependListener('connection', (socket) => {
+			const interfaces = Object.values(networkInterfaces()).flatMap(
+				(entries) => entries ?? [],
+			);
+			if (
+				!isAllowedPeer(
+					socket.remoteAddress ?? '',
+					socket.localAddress ?? '',
+					interfaces,
+				)
+			)
+				socket.destroy();
+		});
 		const io = new Server(this.server, {
 			pingInterval: 20000,
 			pingTimeout: 5000,
@@ -235,8 +250,8 @@ class DeskreenSignalingServer {
 					}
 				});
 
-				// Attempt to listen on all interfaces (0.0.0.0) to allow both local and local network access
-				this.server.listen(port, '0.0.0.0', () => {
+				// Listen on the available IP families for local network access.
+				this.server.listen(port, () => {
 					this.listenCallback()();
 					resolve(this.server);
 				});

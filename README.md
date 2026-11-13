@@ -86,9 +86,11 @@ each viewing device's trust store. A replacement CA must be distributed and
 verified again; the app does not silently replace an existing CA.
 
 The QR code uses Avahi's `.local` hostname, which requires mDNS to work between
-the devices. A hostname change renews the server certificate without replacing
-the CA. If certificate initialization is interrupted, preserve existing CA
-files and inspect the reported error before attempting recovery.
+the devices. The HTTPS listener accepts IPv4 and IPv6; IPv6 viewers must be on
+the same directly connected subnet as the address they use. A hostname change
+renews the server certificate without replacing the CA. If certificate
+initialization is interrupted, preserve existing CA files and inspect the
+reported error before attempting recovery.
 
 ## Remembering a browser
 
