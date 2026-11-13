@@ -49,12 +49,34 @@ export default class Socket implements SocketOPTS {
 		this.socket = socket;
 		this.roomIdOriginal = roomIdOriginal;
 		this.room = room;
-		if (room.isLocked) {
+		if (room.isLocked && !this.canEnterLockedRoom()) {
 			this.sendRoomLocked();
 			return;
 		}
 
 		this.init();
+	}
+
+	private reconnectingBrowser(): string | undefined {
+		const globals = getDeskreenGlobal();
+		const expected = globals.roomIDService.getReconnectingBrowser(
+			this.roomIdOriginal,
+		);
+		if (!expected) return undefined;
+		const browser = globals.trustedBrowsers.find(
+			this.socket.handshake.auth?.trustToken,
+		);
+		return browser?.id === expected ? expected : undefined;
+	}
+
+	private canEnterLockedRoom(): boolean {
+		return Boolean(
+			this.reconnectingBrowser() ||
+				(isOwnerSocket(this.socket) &&
+					getDeskreenGlobal().roomIDService.getReconnectingBrowser(
+						this.roomIdOriginal,
+					)),
+		);
 	}
 
 	init(): void {
@@ -67,6 +89,11 @@ export default class Socket implements SocketOPTS {
 
 	sendRoomLocked(): void {
 		this.socket.emit('ROOM_LOCKED');
+		setTimeout(() => this.socket.disconnect(true), 0);
+	}
+
+	sendRetryLater(): void {
+		this.socket.emit('RETRY_LATER');
 		setTimeout(() => this.socket.disconnect(true), 0);
 	}
 
@@ -193,6 +220,43 @@ export default class Socket implements SocketOPTS {
 			if (target && target.id !== this.socket.id) target.disconnect(true);
 		});
 
+		this.socket.on('RECONNECT_PARTNER', (socketId, acknowledge) => {
+			if (
+				!this.admitted ||
+				!isOwnerSocket(this.socket) ||
+				typeof socketId !== 'string' ||
+				!getDeskreenGlobal().roomIDService.getReconnectingBrowser(
+					this.roomIdOriginal,
+				)
+			) {
+				if (typeof acknowledge === 'function') acknowledge(false);
+				return;
+			}
+			void runInRoom(this.roomId, async () => {
+				const room = (await this.fetchRoom()) as Room;
+				if (
+					!(room.users || []).some(
+						(user) => user.isOwner && user.socketId === this.socket.id,
+					)
+				) {
+					if (typeof acknowledge === 'function') acknowledge(false);
+					return;
+				}
+				const viewer = (room.users || []).find(
+					(user) => !user.isOwner && user.socketId === socketId,
+				);
+				const target =
+					viewer &&
+					socketIOServerStore.getServer().sockets.sockets.get(viewer.socketId);
+				if (typeof acknowledge === 'function')
+					acknowledge(Boolean(target?.connected));
+				if (target?.connected) {
+					target.emit('RETRY_LATER');
+					setTimeout(() => target.disconnect(true), 0);
+				}
+			}).catch((error) => console.error('Failed to reconnect viewer:', error));
+		});
+
 		this.socket.on('USER_ENTER', (payload) => {
 			if (this.admitted || this.enterPending) return;
 			this.enterPending = true;
@@ -269,6 +333,26 @@ export default class Socket implements SocketOPTS {
 			return;
 		}
 		let room: Room = (await this.fetchRoom()) as Room;
+		const owner = isOwnerSocket(this.socket);
+		const expectedBrowser =
+			getDeskreenGlobal().roomIDService.getReconnectingBrowser(
+				this.roomIdOriginal,
+			);
+		const reconnectingBrowser = owner ? undefined : this.reconnectingBrowser();
+		const admissionIsCurrent = () => {
+			const rooms = getDeskreenGlobal().roomIDService;
+			return (
+				this.socket.connected &&
+				rooms.isRoomIDTaken(this.roomIdOriginal) &&
+				rooms.getReconnectingBrowser(this.roomIdOriginal) === expectedBrowser &&
+				(!reconnectingBrowser ||
+					this.reconnectingBrowser() === reconnectingBrowser)
+			);
+		};
+		if (expectedBrowser && !owner && !reconnectingBrowser) {
+			this.sendRoomLocked();
+			return;
+		}
 		if (_.isEmpty(room)) {
 			room = {
 				id: this.roomId,
@@ -276,18 +360,28 @@ export default class Socket implements SocketOPTS {
 				isLocked: false,
 				createdAt: Date.now(),
 			};
-		} else if (room.isLocked) {
+		} else if (room.isLocked && !this.canEnterLockedRoom()) {
 			this.sendRoomLocked();
 			return;
 		} else if (room.users.some((user) => user.username === payload.username)) {
-			this.socket.emit('NOT_ALLOWED');
-			setTimeout(() => this.socket.disconnect(true), 0);
+			if (reconnectingBrowser || (owner && expectedBrowser))
+				this.sendRetryLater();
+			else {
+				this.socket.emit('NOT_ALLOWED');
+				setTimeout(() => this.socket.disconnect(true), 0);
+			}
 			return;
 		}
-		const owner = isOwnerSocket(this.socket);
+		if (owner && (room.users || []).some((user) => user.isOwner)) {
+			this.sendRetryLater();
+			return;
+		}
 		if (!owner && (room.users || []).some((user) => !user.isOwner)) {
-			this.socket.emit('NOT_ALLOWED');
-			setTimeout(() => this.socket.disconnect(true), 0);
+			if (reconnectingBrowser) this.sendRetryLater();
+			else {
+				this.socket.emit('NOT_ALLOWED');
+				setTimeout(() => this.socket.disconnect(true), 0);
+			}
 			return;
 		}
 		if (!this.socket.connected) return;
@@ -298,6 +392,9 @@ export default class Socket implements SocketOPTS {
 		}
 		const newRoom: Room = {
 			...room,
+			...(reconnectingBrowser
+				? { approvedViewerSocketId: this.socket.id }
+				: {}),
 			users: [
 				...(room.users || []),
 				{
@@ -309,15 +406,22 @@ export default class Socket implements SocketOPTS {
 			],
 		};
 		await this.joinRoom();
-		if (
-			!this.socket.connected ||
-			!getDeskreenGlobal().roomIDService.isRoomIDTaken(this.roomIdOriginal)
-		) {
+		if (!admissionIsCurrent()) {
 			void this.socket.leave(this.roomId);
 			this.socket.disconnect(true);
 			return;
 		}
 		await this.saveRoom(newRoom);
+		if (!admissionIsCurrent()) {
+			await this.saveRoom(room);
+			this.socket.disconnect(true);
+			return;
+		}
+		if (reconnectingBrowser) {
+			this.socket.data.approvedRoom = this.roomId;
+			this.socket.data.trustedBrowserId = reconnectingBrowser;
+			this.socket.emit('RECONNECT_ENABLED');
+		}
 		this.admitted = true;
 		if (this.enterTimeout) clearTimeout(this.enterTimeout);
 		socketIOServerStore
@@ -344,10 +448,41 @@ export default class Socket implements SocketOPTS {
 		};
 
 		if (isOwnerUser) {
-			this.disconnectAllUsers(newRoom);
-			await this.destroyRoom();
+			if (
+				getDeskreenGlobal().roomIDService.getReconnectingBrowser(
+					this.roomIdOriginal,
+				)
+			) {
+				for (const user of newRoom.users) {
+					const target = socketIOServerStore
+						.getServer()
+						.sockets.sockets.get(user.socketId);
+					if (target?.connected) {
+						getDeskreenGlobal().connectedDevicesService.markReconnecting(
+							target.id,
+						);
+						target.emit('RETRY_LATER');
+						target.disconnect(true);
+					}
+				}
+				await this.saveRoom({
+					...newRoom,
+					users: [],
+					approvedViewerSocketId: undefined,
+				});
+			} else {
+				this.disconnectAllUsers(newRoom);
+				await this.destroyRoom();
+			}
 		} else {
 			await this.saveRoom(newRoom);
+			if (
+				getDeskreenGlobal().roomIDService.getReconnectingBrowser(
+					this.roomIdOriginal,
+				) === socket.data.trustedBrowserId &&
+				socket.data.trustedBrowserId
+			)
+				getDeskreenGlobal().connectedDevicesService.markReconnecting(socket.id);
 		}
 
 		socketIOServerStore

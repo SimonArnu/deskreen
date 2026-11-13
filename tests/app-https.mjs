@@ -27,12 +27,21 @@ await new Promise((resolve) => freePort.close(resolve));
 const env = {
 	...process.env,
 	XDG_CONFIG_HOME: directory,
-	START_MINIMIZED: 'true',
+	START_MINIMIZED: process.argv.includes('--live') ? 'false' : 'true',
 };
 delete env.ELECTRON_RUN_AS_NODE;
 const app = spawn(
 	process.env.ELECTRON_BINARY || 'node_modules/.bin/electron',
-	['.', '--port', String(port), '--remote-debugging-port=0'],
+	[
+		'.',
+		'--port',
+		String(port),
+		'--remote-debugging-port=0',
+		...(process.argv.includes('--live') &&
+		process.env.XDG_SESSION_TYPE === 'x11'
+			? ['--disable-gpu']
+			: []),
+	],
 	{ env, stdio: ['ignore', 'pipe', 'pipe'] },
 );
 const closed = new Promise((resolve) => {
@@ -41,6 +50,8 @@ const closed = new Promise((resolve) => {
 });
 let output = '';
 let errors = '';
+const errorTimes = [];
+const phases = [];
 let devtools;
 let viewer;
 let observer;
@@ -54,6 +65,8 @@ app.stdout.on('data', (data) => {
 });
 app.stderr.on('data', (data) => {
 	errors += data;
+	if (process.argv.includes('--live'))
+		errorTimes.push({ time: Date.now(), text: String(data).trim() });
 });
 try {
 	await new Promise((resolve, reject) => {
@@ -179,11 +192,16 @@ try {
 		flatten: true,
 	});
 	const evaluate = async (expression) => {
-		const result = await devtools.send(
-			'Runtime.evaluate',
-			{ expression, awaitPromise: true, returnByValue: true },
-			sessionId,
-		);
+		let result;
+		try {
+			result = await devtools.send(
+				'Runtime.evaluate',
+				{ expression, awaitPromise: true, returnByValue: true },
+				sessionId,
+			);
+		} catch (error) {
+			throw new Error(`Evaluation failed: ${expression}`, { cause: error });
+		}
 		if (result.exceptionDetails)
 			throw new Error(JSON.stringify(result.exceptionDetails));
 		return result.result.value;
@@ -206,6 +224,17 @@ try {
 	const { room, text } = connection;
 	assert.ok(text.includes(new X509Certificate(certificates.ca).fingerprint256));
 	assert.match(room, /^[A-Za-z0-9_-]{32}$/);
+	const wayland =
+		process.argv.includes('--live') &&
+		(await evaluate(
+			"window.electron.ipcRenderer.invoke('get-is-linux-wayland-session')",
+		));
+	const liveSources =
+		process.argv.includes('--live') && !wayland
+			? await evaluate(
+					"window.electron.ipcRenderer.invoke('get-desktop-sharing-source-ids', {isEntireScreenToShareChosen: true})",
+				)
+			: [];
 	if (process.argv.includes('--firefox')) {
 		const firefox = await openTrustedFirefox({
 			hostname,
@@ -296,6 +325,80 @@ try {
 				).length,
 				0,
 			);
+			const live = process.argv.includes('--live');
+			const waitForVideo = async () => {
+				const deadline = Date.now() + 20000;
+				while (Date.now() < deadline) {
+					const playing = await firefox.execute(
+						"return [...document.querySelectorAll('video')].some(video => video.videoWidth > 0 && video.currentTime > 0)",
+					);
+					if (playing) return;
+					await new Promise((resolve) => setTimeout(resolve, 100));
+				}
+				throw new Error(
+					`Firefox did not receive live video: ${await firefox.text()}`,
+				);
+			};
+			if (live) {
+				phases.push({ phase: 'selecting source', time: Date.now() });
+				let source = liveSources[0];
+				if (wayland) {
+					await evaluate(`(() => {
+						window.__portalResult = { pending: true };
+						window.electron.ipcRenderer.invoke('request-desktop-capturer-portal-source', { mode: 'screen' })
+							.then(source => { window.__portalResult = { source }; })
+							.catch(error => { window.__portalResult = { error: String(error) }; });
+					})()`);
+					const result = await waitFor(
+						'window.__portalResult',
+						(value) => value && !value.pending,
+						'The screen-sharing portal did not respond',
+						120000,
+					);
+					if (result.error) throw new Error(result.error);
+					source = result.source;
+				}
+				assert.ok(source, 'No screen capture source was available');
+				phases.push({ phase: 'source selected', time: Date.now() });
+				await evaluate(
+					`window.electron.ipcRenderer.invoke('set-desktop-capturer-source-id', ${JSON.stringify(source)})`,
+				);
+				await new Promise((resolve) => setTimeout(resolve, 2000));
+			}
+			assert.equal(
+				await evaluate(
+					"window.electron.ipcRenderer.invoke('start-sharing-on-waiting-for-connection-sharing-session')",
+				),
+				true,
+			);
+			const beforeReload = await waitFor(
+				"window.electron.ipcRenderer.invoke('get-connected-devices-list')",
+				(value) => value.length === 1,
+				'Firefox did not start a sharing session',
+			);
+			if (live) {
+				await waitForVideo();
+				phases.push({ phase: 'video started', time: Date.now() });
+			}
+			await firefox.navigate(`https://${hostname}:${port}/${newRoom}`);
+			if (live) phases.push({ phase: 'viewer reloaded', time: Date.now() });
+			const afterReload = await waitFor(
+				"window.electron.ipcRenderer.invoke('get-connected-devices-list')",
+				(value) =>
+					value.length === 1 &&
+					value[0].socketId !== beforeReload[0].socketId &&
+					!value[0].isReconnecting,
+				'Firefox did not reconnect to the active session after reload',
+				15000,
+			);
+			assert.equal(
+				afterReload[0].sharingSessionID,
+				beforeReload[0].sharingSessionID,
+			);
+			if (live) {
+				await waitForVideo();
+				phases.push({ phase: 'video resumed', time: Date.now() });
+			}
 			await evaluate(
 				"[...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Trusted browsers').click()",
 			);
@@ -307,14 +410,15 @@ try {
 			await evaluate(
 				"[...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Revoke').click()",
 			);
+			if (live) phases.push({ phase: 'trust revoked', time: Date.now() });
 			await waitFor(
 				"window.electron.ipcRenderer.invoke('get-trusted-browsers')",
 				(value) => value.length === 0,
 				'The browser trust was not revoked',
 			);
 			await waitFor(
-				"window.electron.ipcRenderer.invoke('get-pending-connection-device')",
-				(value) => !value?.id,
+				"window.electron.ipcRenderer.invoke('get-connected-devices-list')",
+				(value) => value.length === 0,
 				'Revoking trust did not disconnect Firefox',
 			);
 			await evaluate(
@@ -659,20 +763,15 @@ try {
 			},
 		});
 		await new Promise((resolve) => setTimeout(resolve, 500));
-		replacement.disconnect();
+		replacement.io.engine.close();
 		await waitFor(
 			"window.electron.ipcRenderer.invoke('get-connected-devices-list')",
-			(value) => value.length === 0,
-			'The device slot was not released after disconnect',
-		);
-		const nextRoom = await waitFor(
-			"window.electron.ipcRenderer.invoke('get-waiting-for-connection-sharing-session-room-id')",
-			(value) => Boolean(value && value !== replacementRoom),
-			'A new room was not created for the returning browser',
+			(value) => value.length === 1 && value[0].isReconnecting,
+			'The active sharing session was not retained after interruption',
 		);
 		returning = io(`https://127.0.0.1:${port}`, {
 			...socketOptions,
-			query: { roomId: nextRoom },
+			query: { roomId: replacementRoom },
 			auth: { trustToken },
 		});
 		const returningAllowed = new Promise((resolve, reject) => {
@@ -704,38 +803,30 @@ try {
 				});
 		});
 		await returningAllowed;
-		assert.equal(
-			(
-				await evaluate(
-					"window.electron.ipcRenderer.invoke('get-connected-devices-list')",
-				)
-			).length,
-			0,
-			'Trust must not start sharing automatically',
+		const resumed = await waitFor(
+			"window.electron.ipcRenderer.invoke('get-connected-devices-list')",
+			(value) =>
+				value.length === 1 &&
+				value[0].socketId === returning.id &&
+				!value[0].isReconnecting,
+			'The original sharing session did not resume',
 		);
 		assert.equal(
-			await evaluate(
-				"window.electron.ipcRenderer.invoke('start-sharing-on-waiting-for-connection-sharing-session')",
-			),
-			true,
+			resumed[0].sharingSessionID,
+			replacementDevice.sharingSessionID,
 		);
-		const revokedDisconnect = new Promise((resolve, reject) => {
-			const timeout = setTimeout(
-				() => reject(new Error('Revocation did not disconnect viewer')),
-				5000,
-			);
-			returning.once('disconnect', () => {
-				clearTimeout(timeout);
-				resolve();
-			});
-		});
+		returning.io.engine.close();
+		await waitFor(
+			"window.electron.ipcRenderer.invoke('get-connected-devices-list')",
+			(value) => value.length === 1 && value[0].isReconnecting,
+			'The resumed session was not retained when disconnected again',
+		);
 		assert.equal(
 			await evaluate(
 				`window.electron.ipcRenderer.invoke('revoke-trusted-browser', ${JSON.stringify(trusted[0].id)})`,
 			),
 			true,
 		);
-		await revokedDisconnect;
 		await waitFor(
 			"window.electron.ipcRenderer.invoke('get-connected-devices-list')",
 			(value) => value.length === 0,
@@ -747,6 +838,29 @@ try {
 			),
 			[],
 		);
+		const revoked = io(`https://127.0.0.1:${port}`, {
+			...socketOptions,
+			query: { roomId: replacementRoom },
+			auth: { trustToken },
+		});
+		try {
+			await new Promise((resolve, reject) => {
+				const timeout = setTimeout(
+					() => reject(new Error('Revoked session was not rejected')),
+					5000,
+				);
+				revoked.on('NOT_ALLOWED', () => {
+					clearTimeout(timeout);
+					resolve();
+				});
+				revoked.on('ROOM_READY', () => {
+					clearTimeout(timeout);
+					reject(new Error('Revoked session was admitted'));
+				});
+			});
+		} finally {
+			revoked.disconnect();
+		}
 		successMessage =
 			'The HTTPS viewer, connection instructions and local signaling helper are available.';
 	}
@@ -782,7 +896,7 @@ try {
 		);
 	if (unexpected.length) {
 		const outputError = new Error(
-			`Unexpected application output:\n${unexpected.join('\n')}`,
+			`Unexpected application output:\n${unexpected.join('\n')}${process.argv.includes('--live') ? `\nTimeline: ${JSON.stringify({ phases, errorTimes })}` : ''}`,
 		);
 		failure = failure
 			? new AggregateError([failure, outputError], 'Application test failed')

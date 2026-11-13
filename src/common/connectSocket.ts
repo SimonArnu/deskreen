@@ -13,6 +13,8 @@ export const connectSocket = (
 		auth: { ownerToken },
 		transports: ['websocket'],
 		forceNew: true,
+		reconnectionDelay: 1000,
+		reconnectionDelayMax: 30_000,
 	});
 };
 

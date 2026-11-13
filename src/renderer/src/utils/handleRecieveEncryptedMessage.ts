@@ -1,6 +1,7 @@
 import { process as processMessage } from './message';
 import { IpcEvents } from '../../../common/IpcEvents.enum';
 import { canAcceptDeviceDetails } from '../features/PeerConnection/deviceDetails.mjs';
+import { isEndOfCandidates } from '../../../common/signalingCandidate.mjs';
 
 export type CallAcceptedMessageWithPayload = {
 	type: 'CALL_ACCEPTED';
@@ -109,7 +110,8 @@ export const handleRecieveEncryptedMessage = async (
 	}
 	// const message = payload as any;
 	if (message.type === 'CALL_ACCEPTED') {
-		peerConnection.peer.signal(message.payload.signalData);
+		if (!isEndOfCandidates(message.payload.signalData))
+			peerConnection.peer.signal(message.payload.signalData);
 	}
 	if (message.type === 'DEVICE_DETAILS') {
 		if (payload.fromSocketID !== peerConnection.partner.socketId) return;

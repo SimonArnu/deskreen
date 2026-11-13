@@ -75,6 +75,20 @@ export function handleIpcRenderer(): void {
 			}
 		});
 
+		window.electron.ipcRenderer.on('enable-reconnection', () => {
+			if (peerConnection) peerConnection.reconnectionEnabled = true;
+		});
+
+		window.electron.ipcRenderer.on('resume-viewer', () => {
+			if (peerConnection) void peerConnection.resumeViewer();
+		});
+
+		window.electron.ipcRenderer.on('stop-capture', () => {
+			peerConnection?.selfDestroy();
+			peerConnection = undefined;
+			window.electron.ipcRenderer.send('capture-stopped');
+		});
+
 		window.electron.ipcRenderer.on(
 			'disconnect-by-host-machine-user',
 			(_, deviceId: string) => {

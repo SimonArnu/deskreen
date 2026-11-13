@@ -50,6 +50,8 @@ export default class PeerConnection {
 	displayID: string;
 	sourceDisplaySize: DisplaySize | undefined;
 	beforeunloadHandler: (() => void) | null = null;
+	reconnectionEnabled = false;
+	cancelReconnectTimer: () => void = () => {};
 
 	constructor(
 		roomID: string,
@@ -258,6 +260,40 @@ export default class PeerConnection {
 		handleSelfDestroy(this);
 	}
 
+	prepareForReconnection(): void {
+		if (this.peer !== NullSimplePeer) {
+			try {
+				this.peer.removeAllListeners();
+				this.peer.destroy();
+			} catch (error) {
+				console.error('Failed to close the peer connection:', error);
+			}
+			this.peer = NullSimplePeer;
+		}
+		this.signalsDataToCallUser = [];
+		this.isCallStarted = false;
+	}
+
+	async resumeViewer(): Promise<void> {
+		this.sendUserAllowedToConnect();
+		if (!this.desktopCapturerSourceID) return;
+		if (
+			!this.localStream
+				?.getVideoTracks()
+				.some((track) => track.readyState === 'live')
+		) {
+			this.selfDestroy();
+			return;
+		}
+		try {
+			await this.createPeer(true);
+			if (this.reconnectionEnabled) this.callPeer();
+		} catch (error) {
+			console.error('Failed to resume the viewer:', error);
+			this.selfDestroy();
+		}
+	}
+
 	emitUserEnter(): void {
 		this.socket.emit('USER_ENTER', {
 			username: this.user.username,
@@ -295,8 +331,8 @@ export default class PeerConnection {
 		});
 	}
 
-	createPeer(): Promise<void> {
-		return handleCreatePeer(this);
+	createPeer(retainStream = false): Promise<void> {
+		return handleCreatePeer(this, retainStream);
 	}
 
 	toggleLockRoom(isConnected: boolean): void {

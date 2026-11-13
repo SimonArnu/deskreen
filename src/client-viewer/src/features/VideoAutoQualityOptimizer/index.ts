@@ -19,6 +19,8 @@ export default class VideoAutoQualityOptimizer {
 	largeMismatchFramesCount = 0;
 
 	isRequestedHalfQuality = false;
+	optimizationInterval: ReturnType<typeof setInterval> | null = null;
+	private preparationTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	goodQualityCallback = () => {
 		// noop until callbacks are provided
@@ -37,8 +39,9 @@ export default class VideoAutoQualityOptimizer {
 	}
 
 	startOptimizationLoop() {
+		if (this.optimizationInterval) return;
 		this.prepareCanvasAndVideo();
-		setInterval(() => {
+		this.optimizationInterval = setInterval(() => {
 			try {
 				this.doFrameComparisonAndQualityOptimization();
 			} catch (e) {
@@ -48,6 +51,14 @@ export default class VideoAutoQualityOptimizer {
 				}
 			}
 		}, 1000);
+	}
+
+	stopOptimizationLoop() {
+		if (this.optimizationInterval) clearInterval(this.optimizationInterval);
+		if (this.preparationTimeout) clearTimeout(this.preparationTimeout);
+		this.optimizationInterval = null;
+		this.preparationTimeout = null;
+		this.prevFrame = undefined;
 	}
 
 	doFrameComparisonAndQualityOptimization() {
@@ -91,7 +102,8 @@ export default class VideoAutoQualityOptimizer {
 	}
 
 	prepareCanvasAndVideo() {
-		setTimeout(() => {
+		this.preparationTimeout = setTimeout(() => {
+			this.preparationTimeout = null;
 			this.findAndSetVideoInternalVariable(document);
 			this.findAndSetCanvasInternalVariable(document);
 		}, 1000);

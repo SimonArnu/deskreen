@@ -11,7 +11,7 @@ export default (
 	[peerConnection.partner] = filteredPartner;
 
 	if (peerConnection.partner.username !== '') {
-		peerConnection.toggleLockRoom(true);
+		if (!peerConnection.isSocketRoomLocked) peerConnection.toggleLockRoom(true);
 		peerConnection.emitUserEnter();
 	}
 };

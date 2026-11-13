@@ -6,6 +6,7 @@ import NullSimplePeer from './NullSimplePeer';
 
 export default function handleCreatePeer(
 	peerConnection: PeerConnection,
+	retainStream = false,
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		// cleanup existing peer before creating new one
@@ -20,7 +21,7 @@ export default function handleCreatePeer(
 		}
 
 		// cleanup existing stream before creating new one
-		if (peerConnection.localStream) {
+		if (peerConnection.localStream && !retainStream) {
 			peerConnection.localStream.getTracks().forEach((track) => {
 				track.stop();
 			});
@@ -31,11 +32,15 @@ export default function handleCreatePeer(
 		peerConnection.signalsDataToCallUser = [];
 		peerConnection.isCallStarted = false;
 
-		createDesktopCapturerStream(
-			peerConnection,
-			peerConnection.desktopCapturerSourceID,
+		(retainStream
+			? Promise.resolve()
+			: createDesktopCapturerStream(
+					peerConnection,
+					peerConnection.desktopCapturerSourceID,
+				)
 		)
 			.then(() => {
+				const partnerSocketId = peerConnection.partner.socketId;
 				// if (peerConnection.peer === NullSimplePeer) {
 				// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 				// @ts-ignore
@@ -55,7 +60,12 @@ export default function handleCreatePeer(
 
 				peerConnection.peer.on('signal', (data: string) => {
 					// fired when simple peer and webrtc done preparation to start call on peerConnection machine
-					peerConnection.signalsDataToCallUser.push(data);
+					if (peerConnection.isCallStarted) {
+						void peerConnection.sendEncryptedMessage({
+							type: 'CALL_USER',
+							payload: { signalData: data },
+						});
+					} else peerConnection.signalsDataToCallUser.push(data);
 				});
 
 				peerConnection.peer.on('data', (data) => {
@@ -64,12 +74,18 @@ export default function handleCreatePeer(
 
 				// ensure cleanup on peer end/error to prevent dangling helper window
 				peerConnection.peer.on('close', () => {
-					peerConnection.selfDestroy();
+					if (peerConnection.reconnectionEnabled) {
+						peerConnection.prepareForReconnection();
+						peerConnection.socket.emit('RECONNECT_PARTNER', partnerSocketId);
+					} else peerConnection.selfDestroy();
 				});
 
 				peerConnection.peer.on('error', (e: Error) => {
 					console.error('peerConnection peer error', e);
-					peerConnection.selfDestroy();
+					if (peerConnection.reconnectionEnabled) {
+						peerConnection.prepareForReconnection();
+						peerConnection.socket.emit('RECONNECT_PARTNER', partnerSocketId);
+					} else peerConnection.selfDestroy();
 				});
 				resolve(undefined);
 			})

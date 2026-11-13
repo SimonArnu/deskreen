@@ -1,7 +1,9 @@
 import { createRoomId } from './createRoomId.mjs';
+import { roomHash } from '../roomHash.mjs';
 
 export default class RoomIDService {
 	takenRoomIDs: Set<string>;
+	private reconnectingBrowsers = new Map<string, string>();
 
 	constructor() {
 		this.takenRoomIDs = new Set<string>();
@@ -20,6 +22,22 @@ export default class RoomIDService {
 
 	unmarkRoomIDAsTaken(id: string): void {
 		this.takenRoomIDs.delete(id);
+		this.reconnectingBrowsers.delete(id);
+	}
+
+	allowReconnection(id: string, browserId: string): void {
+		if (!this.takenRoomIDs.has(id)) throw new Error('Room is not active');
+		this.reconnectingBrowsers.set(id, browserId);
+	}
+
+	getReconnectingBrowser(id: string): string | undefined {
+		return this.reconnectingBrowsers.get(id);
+	}
+
+	isReconnectionRoomHash(id: string): boolean {
+		return [...this.reconnectingBrowsers.keys()].some(
+			(room) => roomHash(room) === id,
+		);
 	}
 
 	isRoomIDTaken(id: string): boolean {

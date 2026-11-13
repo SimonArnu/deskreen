@@ -3,12 +3,15 @@
  * translated to typescript for Deskreen app
  * */
 import getStore from './store';
+import { getDeskreenGlobal } from '../main/helpers/getDeskreenGlobal';
 
 export default async function startPollForInactiveRooms(): Promise<void> {
 	const store = getStore();
 	const rooms = (await store.getAll('rooms')) || {};
 
 	for (const roomId of Object.keys(rooms)) {
+		if (getDeskreenGlobal().roomIDService.isReconnectionRoomHash(roomId))
+			continue;
 		const serializedRoom = rooms[roomId];
 		if (typeof serializedRoom !== 'string') {
 			continue;

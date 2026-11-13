@@ -102,14 +102,46 @@ export function revokeTrustedBrowser(id: string): boolean {
 	for (const socket of socketIOServerStore
 		.getServer()
 		.sockets.sockets.values()) {
-		if (socket.data.trustedBrowserId === id) socket.disconnect(true);
+		if (socket.data.trustedBrowserId === id) {
+			socket.emit('SESSION_ENDED');
+			socket.disconnect(true);
+		}
 	}
 	return true;
+}
+
+export function endViewerSession(roomId: string): void {
+	const id = roomHash(roomId);
+	for (const socket of socketIOServerStore
+		.getServer()
+		.sockets.sockets.values()) {
+		if (socket.rooms.has(id) && socket.data.approvedRoom === id) {
+			socket.emit('SESSION_ENDED');
+			socket.disconnect(true);
+		}
+	}
 }
 
 export function trustedBrowserForSocket(socketId: string): string | undefined {
 	return socketIOServerStore.getServer().sockets.sockets.get(socketId)?.data
 		.trustedBrowserId;
+}
+
+export function enableViewerReconnection(
+	roomId: string,
+	socketId: string,
+	browserId: string,
+): boolean {
+	const socket = socketIOServerStore.getServer().sockets.sockets.get(socketId);
+	if (
+		!socket ||
+		socket.data.trustedBrowserId !== browserId ||
+		!isApprovedSocket(roomId, socketId)
+	)
+		return false;
+	getDeskreenGlobal().roomIDService.allowReconnection(roomId, browserId);
+	socket.emit('RECONNECT_ENABLED');
+	return true;
 }
 
 export function hasTrustedCredential(socketId: string): boolean {

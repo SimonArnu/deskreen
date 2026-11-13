@@ -15,8 +15,12 @@
   temporary interruption while sharing remains active.
 - [ ] Stop retries after explicit disconnection, revocation or sharing stop;
   use bounded retry backoff.
-- [ ] Decide whether reconnecting after an application restart should require
-  selecting the screen again. Respect Ubuntu Wayland portal permissions.
+- [x] Require source selection and confirmation again after an application
+  restart. Respect Ubuntu Wayland portal permissions.
+- [ ] Investigate the PipeWire thread-loop assertion printed during Wayland
+  source selection and shutdown. The live test resumed video but remains failing
+  while this diagnostic occurs. The isolated X11 live test also reports a pixel
+  buffer initialization error.
 
 ## Verification and certificate lifecycle
 

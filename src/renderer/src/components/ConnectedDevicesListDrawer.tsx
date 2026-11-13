@@ -217,6 +217,13 @@ export default function ConnectedDevicesListDrawer(
 								return (
 									<div key={device.id}>
 										<Card className="connected-device-card">
+											{device.isReconnecting && (
+												<Text>
+													{t(
+														'Viewer disconnected. Capture remains active while reconnecting.',
+													)}
+												</Text>
+											)}
 											<Row middle="xs">
 												<Col xs={6}>
 													<DeviceInfoCallout

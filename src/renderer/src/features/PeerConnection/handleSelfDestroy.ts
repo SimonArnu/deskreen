@@ -6,6 +6,8 @@ export default function handleSelfDestroy(
 	peerConnection: PeerConnection,
 ): void {
 	peerConnection.partner = NullUser;
+	peerConnection.reconnectionEnabled = false;
+	peerConnection.cancelReconnectTimer();
 	// remove window event listener
 	if (peerConnection.beforeunloadHandler) {
 		window.removeEventListener(

@@ -22,6 +22,8 @@ export const connect = (roomId: string) => {
 			roomId,
 		},
 		forceNew: true,
+		reconnectionDelay: 1000,
+		reconnectionDelayMax: 30_000,
 		auth: { trustToken, candidateToken },
 	});
 	return socket;

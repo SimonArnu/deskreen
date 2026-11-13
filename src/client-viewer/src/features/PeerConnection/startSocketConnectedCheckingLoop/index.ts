@@ -58,6 +58,7 @@ export default (peerConnection: PeerConnection): NodeJS.Timeout => {
 	const handleDisconnection = () => {
 		// show error and stop stream after sustained disconnection
 		if (disconnectedStreak >= 3) {
+			if (peerConnection.reconnectionEnabled) return;
 			// stop the video stream
 			if (peerConnection.isStreamStarted) {
 				peerConnection.stopStream();

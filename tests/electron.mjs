@@ -41,9 +41,11 @@ const unexpected = result.stderr
 if (unexpected.length)
 	throw new Error(`Unexpected Electron output:\n${unexpected.join('\n')}`);
 if (
-	['tests/signaling.fixture.ts', 'tests/trusted-signaling.fixture.ts'].includes(
-		process.argv[2],
-	)
+	[
+		'tests/signaling.fixture.ts',
+		'tests/trusted-signaling.fixture.ts',
+		'tests/reconnect-signaling.fixture.ts',
+	].includes(process.argv[2])
 ) {
 	const lines = result.stdout.trim().split('\n');
 	if (
@@ -55,7 +57,9 @@ if (
 		/Server available at https:\/\/deskreen\.local:0$/,
 		process.argv[2] === 'tests/signaling.fixture.ts'
 			? /^Concurrent viewers cannot both enter the signaling room\.$/
-			: /^Trusted viewers require explicit enrollment and can be revoked\.$/,
+			: process.argv[2] === 'tests/trusted-signaling.fixture.ts'
+				? /^Trusted viewers require explicit enrollment and can be revoked\.$/
+				: /^Active sessions admit only the same trusted browser on reconnection\.$/,
 	];
 	if (
 		lines.length !== expected.length ||

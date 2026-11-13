@@ -69,6 +69,11 @@ export default (peerConnection: PeerConnection) => {
 		});
 	});
 
+	peerConnection.peer.on('close', () => {
+		if (peerConnection.reconnectionEnabled && peerConnection.socket?.connected)
+			peerConnection.socket.io.engine.close();
+	});
+
 	peerConnection.peer.on('data', (data) => {
 		const dataJSON = JSON.parse(data);
 

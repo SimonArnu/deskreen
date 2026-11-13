@@ -53,6 +53,12 @@ class SingleViewerSlot {
 		if (!this.device) return false;
 		return this.device.id === deviceID;
 	}
+
+	replace(deviceID: string, replacement: Device): boolean {
+		if (!this.device || this.device.id !== deviceID) return false;
+		this.device = Object.freeze({ ...replacement });
+		return true;
+	}
 }
 
 export class ConnectedDevicesService {
@@ -109,6 +115,18 @@ export class ConnectedDevicesService {
 			throw error;
 		}
 		this.notifyAvailabilityListeners();
+	}
+
+	markReconnecting(socketId: string): void {
+		const device = this.slot
+			.snapshot()
+			.find((item) => item.socketId === socketId);
+		if (device)
+			this.slot.replace(device.id, { ...device, isReconnecting: true });
+	}
+
+	replaceDevice(currentId: string, device: Device): boolean {
+		return this.slot.replace(currentId, { ...device, isReconnecting: false });
 	}
 
 	setPendingConnectionDevice(device: Device): void {

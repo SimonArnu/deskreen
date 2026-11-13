@@ -10,4 +10,5 @@ export interface Device {
 	deviceScreenHeight: number;
 	deviceRoomId: string;
 	isTrusted?: boolean;
+	isReconnecting?: boolean;
 }

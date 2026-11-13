@@ -3,6 +3,7 @@ import { process as processMessage } from '../../utils/message';
 import NullUser from './NullUser';
 import PeerConnectionUserIsNotDefinedError from './errors/PeerConnectionUserIsNotDefinedError';
 import setAndShowErrorDialogMessage from './setAndShowErrorDialogMessage';
+import { isEndOfCandidates } from '../../../../common/signalingCandidate.mjs';
 
 export default async (
 	peerConnection: PeerConnection,
@@ -14,12 +15,15 @@ export default async (
 	const message = await processMessage(payload);
 	// const message = payload as any;
 	if (message.type === 'CALL_USER') {
-		peerConnection.peer?.signal(message.payload.signalData);
+		if (!isEndOfCandidates(message.payload.signalData))
+			peerConnection.peer?.signal(message.payload.signalData);
 	}
 	if (message.type === 'DENY_TO_CONNECT') {
+		peerConnection.stopReconnecting();
 		setAndShowErrorDialogMessage(peerConnection, ErrorMessage.DENY_TO_CONNECT);
 	}
 	if (message.type === 'DISCONNECT_BY_HOST_MACHINE_USER') {
+		peerConnection.stopReconnecting();
 		setAndShowErrorDialogMessage(peerConnection, ErrorMessage.DISCONNECTED);
 	}
 	if (message.type === 'ALLOWED_TO_CONNECT') {

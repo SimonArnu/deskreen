@@ -31,6 +31,7 @@ import setAndShowErrorDialogMessage from './setAndShowErrorDialogMessage';
 import PeerConnectionSocketNotDefined from './errors/PeerConnectionSocketNotDefined';
 import PeerConnectionUserIsNotDefinedError from './errors/PeerConnectionUserIsNotDefinedError';
 import PeerConnectionPartnerIsNotDefinedError from './errors/PeerConnectionPartnerIsNotDefinedError';
+import { RetryDelay } from '../../../../common/retryDelay.mjs';
 
 export default class PeerConnection {
 	roomId: string;
@@ -72,6 +73,9 @@ export default class PeerConnection {
 	reconnectTimeout: NodeJS.Timeout | null = null;
 
 	setMyDeviceDetailsTimeout: NodeJS.Timeout | null = null;
+	reconnectionEnabled = false;
+	retryDelay = new RetryDelay();
+	retryTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(
 		roomId: string,
@@ -114,6 +118,7 @@ export default class PeerConnection {
 	}
 
 	stopStream() {
+		this.videoAutoQualityOptimizer.stopOptimizationLoop();
 		// stop the video stream by clearing the stream URL
 		this.setUrlCallback(null);
 		this.isStreamStarted = false;
@@ -131,6 +136,8 @@ export default class PeerConnection {
 	}
 
 	destroy() {
+		this.stopReconnecting();
+		this.videoAutoQualityOptimizer.stopOptimizationLoop();
 		// remove window event listener
 		if (this.beforeunloadHandler) {
 			window.removeEventListener('beforeunload', this.beforeunloadHandler);
@@ -176,6 +183,30 @@ export default class PeerConnection {
 		}
 	}
 
+	stopReconnecting() {
+		this.reconnectionEnabled = false;
+		if (this.retryTimer) clearTimeout(this.retryTimer);
+		this.retryTimer = null;
+		if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+		this.reconnectTimeout = null;
+		this.socket?.io.reconnection(false);
+		this.socket?.disconnect();
+	}
+
+	scheduleReconnect() {
+		if (!this.reconnectionEnabled || this.retryTimer) return;
+		this.retryTimer = setTimeout(() => {
+			this.retryTimer = null;
+			if (this.reconnectionEnabled) this.socket?.connect();
+		}, this.retryDelay.next());
+	}
+
+	prepareForReconnection() {
+		this.stopStream();
+		this.createPeer();
+		setAndShowErrorDialogMessage(this, ErrorMessage.RECONNECTING);
+	}
+
 	createPeer() {
 		// cleanup existing peer before creating new one
 		if (this.peer) {
@@ -205,6 +236,10 @@ export default class PeerConnection {
 
 		this.peer = peer;
 		this.peer.on('error', (e) => {
+			if (this.reconnectionEnabled) {
+				this.socket?.io.engine.close();
+				return;
+			}
 			console.error('error in simple peer happened!');
 			console.error(e);
 			setAndShowErrorDialogMessage(this, ErrorMessage.WEBRTC_ERROR);

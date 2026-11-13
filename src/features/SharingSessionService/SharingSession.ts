@@ -24,6 +24,8 @@ export default class SharingSession {
 	onDeviceConnectedCallback: undefined | ((device: Device) => void);
 	desktopCapturerSourceID: string;
 	sleepBlockerId: number | null = null;
+	trustedBrowserId: string | undefined;
+	private closing = false;
 
 	constructor(
 		_roomID: string,
@@ -86,7 +88,23 @@ export default class SharingSession {
 
 	destroy(): void {
 		this.releaseSleepBlocker();
-		this.peerConnectionHelperRenderer?.close();
+		const helper = this.peerConnectionHelperRenderer;
+		if (!helper || helper.isDestroyed() || this.closing) return;
+		this.closing = true;
+		const close = () => {
+			clearTimeout(timeout);
+			if (helper.isDestroyed()) return;
+			if (!helper.webContents.isDestroyed())
+				helper.webContents.removeListener('ipc-message', onMessage);
+			helper.close();
+		};
+		const onMessage = (_event: Electron.IpcMainEvent, channel: string) => {
+			if (channel === 'capture-stopped') close();
+		};
+		const timeout = setTimeout(close, 2000);
+		helper.once('closed', () => clearTimeout(timeout));
+		helper.webContents.on('ipc-message', onMessage);
+		helper.webContents.send('stop-capture');
 	}
 
 	private releaseSleepBlocker(): void {
@@ -112,6 +130,15 @@ export default class SharingSession {
 	callPeer(): void {
 		if (process.env.RUN_MODE === 'test') return;
 		this.peerConnectionHelperRenderer?.webContents.send('call-peer');
+	}
+
+	enableReconnection(browserId: string): void {
+		this.trustedBrowserId = browserId;
+		this.peerConnectionHelperRenderer?.webContents.send('enable-reconnection');
+	}
+
+	resumeViewer(): void {
+		this.peerConnectionHelperRenderer?.webContents.send('resume-viewer');
 	}
 
 	disconnectByHostMachineUser(): void {

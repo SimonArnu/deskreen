@@ -38,6 +38,10 @@ export default (peerConnection: PeerConnection) => {
 
 	socket.on('disconnect', () => {
 		disconnectCount++;
+		if (peerConnection.reconnectionEnabled) {
+			peerConnection.prepareForReconnection();
+			return;
+		}
 		// handle disconnect even when stream is started - stop stream and show error
 		if (peerConnection.isStreamStarted && disconnectCount >= 1) {
 			peerConnection.stopStream();
@@ -51,15 +55,22 @@ export default (peerConnection: PeerConnection) => {
 	});
 
 	socket.on('connect', () => {
+		if (peerConnection.retryTimer) clearTimeout(peerConnection.retryTimer);
+		peerConnection.retryTimer = null;
 		if (peerConnection.reconnectTimeout) {
 			clearTimeout(peerConnection.reconnectTimeout);
 		}
 
 		peerConnection.reconnectTimeout = setTimeout(() => {
 			if (isAllowed) {
-				console.log('Signaling handshake timed out, reconnecting socket');
-				socket.disconnect();
-				socket.connect();
+				if (peerConnection.reconnectionEnabled) {
+					socket.disconnect();
+					peerConnection.scheduleReconnect();
+				} else {
+					console.log('Signaling handshake timed out, reconnecting socket');
+					socket.disconnect();
+					socket.connect();
+				}
 			}
 		}, 5000);
 	});
@@ -77,11 +88,29 @@ export default (peerConnection: PeerConnection) => {
 
 	socket.on('NOT_ALLOWED', () => {
 		isAllowed = false;
+		peerConnection.stopReconnecting();
 		setAndShowErrorDialogMessage(peerConnection, ErrorMessage.NOT_ALLOWED);
+	});
+
+	socket.on('RECONNECT_ENABLED', () => {
+		peerConnection.reconnectionEnabled = true;
+	});
+
+	socket.on('SESSION_ENDED', () => {
+		isAllowed = false;
+		peerConnection.stopReconnecting();
+		peerConnection.stopStream();
+		setAndShowErrorDialogMessage(peerConnection, ErrorMessage.DISCONNECTED);
+	});
+
+	socket.on('RETRY_LATER', () => {
+		peerConnection.reconnectionEnabled = true;
+		peerConnection.scheduleReconnect();
 	});
 
 	socket.on('USER_ENTER', (payload: { users: PartnerPeerUser[] }) => {
 		if (!isAllowed) return;
+		peerConnection.retryDelay.reset();
 		const filteredPartner = payload.users.filter((v) => {
 			return peerConnection.user.username !== v.username;
 		});
@@ -133,6 +162,8 @@ export default (peerConnection: PeerConnection) => {
 	});
 
 	socket.on('ROOM_LOCKED', () => {
+		isAllowed = false;
+		peerConnection.stopReconnecting();
 		setAndShowErrorDialogMessage(peerConnection, ErrorMessage.DENY_TO_CONNECT);
 	});
 };

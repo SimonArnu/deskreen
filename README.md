@@ -82,7 +82,21 @@ Trust belongs to a browser profile, not a physical device: anyone who copies or
 steals its stored credential can use it. Revoke trust if the profile or device is
 lost or compromised. If the viewer reports it could not save the credential,
 revoke that entry and pair again. The app stores only a hash of the credential.
-Automatic recovery of a running stream is not yet implemented.
+
+## Reconnection
+
+While sharing remains active, a remembered browser can reconnect to the same
+capture after an interruption. The app keeps the capture active and retains the
+viewer slot until you disconnect the viewer, revoke its trust, or stop sharing.
+Retries use capped backoff. After an app restart, select and confirm a source
+again; capture is not restored automatically. If a viewer is offline when
+sharing stops, it can only learn that the session ended after it reaches the
+host again; while the host is unreachable it continues retrying.
+
+Reconnection is experimental. A Wayland live-video test resumed playback after
+a Firefox reload, but PipeWire logged a thread-loop assertion at source
+selection and shutdown; the strict live test therefore fails. Android and real
+network-interruption recovery have not been verified.
 
 ## Tests
 
@@ -96,6 +110,10 @@ the application test also requires Avahi and `gdbus`.
 `certutil`; set `GECKODRIVER` and `CERTUTIL` if they are not on the PATH.
 For Snap Firefox, set `FIREFOX_PROFILE_ROOT="$HOME/snap/firefox/common"` so
 the isolated test profiles are accessible inside the Snap.
+`npm run test:live` additionally requests a real screen capture through the
+desktop portal and needs a user to select the screen. `npm run test:live-x11`
+uses an isolated Xvfb display; set `XVFB_BIN` if necessary. Both tests check
+video before and after viewer reload and fail on unexpected application output.
 
 ## Maintainer
 

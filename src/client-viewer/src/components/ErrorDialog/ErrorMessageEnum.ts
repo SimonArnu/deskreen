@@ -2,6 +2,7 @@ export const ErrorMessage = {
 	UNKNOWN_ERROR: 'An unknown error occurred',
 	DENY_TO_CONNECT: 'You were not allowed to connect',
 	DISCONNECTED: 'You were disconnected',
+	RECONNECTING: 'Connection interrupted. Reconnecting…',
 	NOT_ALLOWED: 'You were not allowed to connect',
 	WEBRTC_ERROR: 'WebRTC error occurred',
 	TRUST_STORAGE_ERROR:

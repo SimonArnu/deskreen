@@ -88,6 +88,7 @@ export default function TopPanel({ handleReset }: Props): React.ReactElement {
 	const [isConnectedDevicesDrawerOpen, setIsConnectedDevicesDrawerOpen] =
 		React.useState(false);
 	const [connectedDevicesCount, setConnectedDevicesCount] = React.useState(0);
+	const [isReconnecting, setIsReconnecting] = React.useState(false);
 
 	const handleSettingsOpen = React.useCallback(() => {
 		setIsSettingsOpen(true);
@@ -109,6 +110,7 @@ export default function TopPanel({ handleReset }: Props): React.ReactElement {
 				);
 				if (Array.isArray(devices)) {
 					setConnectedDevicesCount(devices.length);
+					setIsReconnecting(devices.some((device) => device.isReconnecting));
 				}
 			} catch (e) {
 				console.error(e);
@@ -217,6 +219,11 @@ export default function TopPanel({ handleReset }: Props): React.ReactElement {
 					</div>
 				</div>
 			</div>
+			{isReconnecting && (
+				<div role="status">
+					{t('Viewer disconnected. Capture remains active while reconnecting.')}
+				</div>
+			)}
 			{isSettingsOpen ? (
 				<SettingsOverlay
 					isSettingsOpen={isSettingsOpen}

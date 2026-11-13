@@ -24,6 +24,8 @@ import isLinuxWaylandSession from '../utils/isLinuxWaylandSession';
 import { checkScreenRecordingPermission } from './checkScreenRecordingPermission';
 import {
 	approveViewer,
+	enableViewerReconnection,
+	endViewerSession,
 	isApprovedSocket,
 	isViewerApproved,
 	revokeTrustedBrowser,
@@ -100,6 +102,8 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 		deskreenGlobal.roomIDService = new RoomIDService();
 		deskreenGlobal.sharingSessionService.sharingSessions.forEach(
 			(sharingSession: SharingSession) => {
+				deskreenGlobal.roomIDService.unmarkRoomIDAsTaken(sharingSession.roomID);
+				endViewerSession(sharingSession.roomID);
 				sharingSession.denyConnectionForPartner();
 				sharingSession.destroy();
 			},
@@ -301,9 +305,18 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 			getDeskreenGlobal();
 		const active = connectedDevicesService
 			.getDevices()
-			.filter((device) => trustedBrowserForSocket(device.socketId) === id);
+			.filter(
+				(device) =>
+					trustedBrowserForSocket(device.socketId) === id ||
+					getDeskreenGlobal().roomIDService.getReconnectingBrowser(
+						device.deviceRoomId,
+					) === id,
+			);
 		if (!revokeTrustedBrowser(id)) return false;
 		for (const device of active) {
+			getDeskreenGlobal().roomIDService.unmarkRoomIDAsTaken(
+				device.deviceRoomId,
+			);
 			const session = sharingSessionService.sharingSessions.get(
 				device.sharingSessionID,
 			);
@@ -331,6 +344,10 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 					sessionId,
 				);
 			if (sharingSession) {
+				getDeskreenGlobal().roomIDService.unmarkRoomIDAsTaken(
+					sharingSession.roomID,
+				);
+				endViewerSession(sharingSession.roomID);
 				getDeskreenGlobal().connectedDevicesService.disconnectDeviceByID(
 					sharingSession.deviceID,
 				);
@@ -469,12 +486,26 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 			!isApprovedSocket(sharingSession.roomID, pendingDevice.socketId)
 		)
 			return false;
-		roomIDService.unmarkRoomIDAsTaken(sharingSession.roomID);
+		const browserId = trustedBrowserForSocket(pendingDevice.socketId);
+		if (browserId) {
+			if (
+				!enableViewerReconnection(
+					sharingSession.roomID,
+					pendingDevice.socketId,
+					browserId,
+				)
+			)
+				return false;
+			sharingSession.enableReconnection(browserId);
+		} else {
+			roomIDService.unmarkRoomIDAsTaken(sharingSession.roomID);
+		}
 
 		try {
 			connectedDevicesService.addDevice(pendingDevice);
 			sharingSession.setDeviceID(pendingDevice.id);
 		} catch (error) {
+			roomIDService.unmarkRoomIDAsTaken(sharingSession.roomID);
 			console.error('failed to occupy single viewer slot', error);
 			if (sharingSession !== null) {
 				sharingSession.setStatus(SharingSessionStatusEnum.ERROR);
@@ -572,6 +603,12 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 		}
 		const sharingSession =
 			getDeskreenGlobal().sharingSessionService.sharingSessions.get(id);
+		if (sharingSession) {
+			getDeskreenGlobal().roomIDService.unmarkRoomIDAsTaken(
+				sharingSession.roomID,
+			);
+			endViewerSession(sharingSession.roomID);
+		}
 		if (sharingSession?.deviceID) {
 			getDeskreenGlobal().connectedDevicesService.disconnectDeviceByID(
 				sharingSession.deviceID,
