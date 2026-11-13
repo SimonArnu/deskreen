@@ -82,7 +82,7 @@ export default function IntermediateStep(
 				flexDirection: 'column',
 				justifyContent: 'center',
 				alignItems: 'center',
-				height: '260px',
+				height: activeStep === 0 ? 'auto' : '260px',
 				width: '100%',
 			}}
 		>

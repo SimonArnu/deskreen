@@ -180,6 +180,9 @@ const ScanQRStep: React.FC = () => {
 			{connectionInfo && (
 				<details style={{ margin: '0 auto 12px', maxWidth: '640px' }}>
 					<summary>{t('First-time HTTPS setup')}</summary>
+					<CertificateSetup
+						fingerprint={connectionInfo.certificateFingerprint}
+					/>
 					<p>
 						{t(
 							'Transfer the public CA certificate to your viewing device using a trusted method, verify its fingerprint, and trust it in the browser if supported. A trusted CA can identify other websites too. Never share the CA private key.',
@@ -199,10 +202,7 @@ const ScanQRStep: React.FC = () => {
 						}
 					>
 						{t('Copy certificate path')}
-					</Button>{' '}
-					<CertificateSetup
-						fingerprint={connectionInfo.certificateFingerprint}
-					/>
+					</Button>
 					<p>
 						{t('SHA-256 fingerprint')}:{' '}
 						<code style={{ overflowWrap: 'anywhere' }}>

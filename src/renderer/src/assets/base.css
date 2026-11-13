@@ -95,7 +95,8 @@ body {
 		Helvetica,
 		Helvetica Neue,
 		serif;
-	overflow: hidden;
+	overflow-x: hidden;
+	overflow-y: auto;
 	background-color: var(--light-bg-color);
 }
 

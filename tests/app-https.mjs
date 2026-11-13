@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes, X509Certificate } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { request } from 'node:https';
 import { request as httpRequest } from 'node:http';
@@ -17,6 +17,10 @@ const directory = await mkdtemp(join(tmpdir(), 'deskreen-app-test-'));
 const config = join(directory, 'deskreen-ce');
 await mkdir(config, { mode: 0o755 });
 await chmod(config, 0o755);
+await writeFile(
+	join(config, 'deskreen-ce-storage.json'),
+	JSON.stringify({ isNotFirstTimeAppStart: 'true' }),
+);
 const hostname = getLocalHostname();
 const certificatePath = join(config, 'security', 'certificates', 'ca.crt');
 const freePort = createServer();
@@ -33,7 +37,7 @@ delete env.ELECTRON_RUN_AS_NODE;
 const app = spawn(
 	process.env.ELECTRON_BINARY || 'node_modules/.bin/electron',
 	[
-		'.',
+		process.env.DESKREEN_TEST_APP_DIRECTORY || '.',
 		'--port',
 		String(port),
 		'--remote-debugging-port=0',
@@ -224,6 +228,59 @@ try {
 	const { room, text } = connection;
 	assert.ok(text.includes(new X509Certificate(certificates.ca).fingerprint256));
 	assert.match(room, /^[A-Za-z0-9_-]{32}$/);
+	const visibleTarget = async (selector) => {
+		const position = await evaluate(`(() => {
+			const element = document.querySelector(${JSON.stringify(selector)});
+			if (!element) return null;
+			const rect = element.getBoundingClientRect();
+			const x = rect.left + rect.width / 2;
+			const y = rect.top + rect.height / 2;
+			const hit = document.elementFromPoint(x, y);
+			return { x, y, top: rect.top, bottom: rect.bottom, width: rect.width,
+				height: rect.height, viewportHeight: innerHeight,
+				visible: rect.width > 0 && rect.height > 0 && rect.top >= 0 &&
+					rect.bottom <= innerHeight && Boolean(hit && (hit === element || element.contains(hit))),
+				hit: hit?.outerHTML.slice(0, 300) };
+		})()`);
+		assert.ok(
+			position?.visible,
+			`${selector} is not visible and clickable: ${JSON.stringify(position)}`,
+		);
+		return position;
+	};
+	const clickVisible = async (selector) => {
+		const position = await visibleTarget(selector);
+		await devtools.send(
+			'Input.dispatchMouseEvent',
+			{ type: 'mouseMoved', x: position.x, y: position.y },
+			sessionId,
+		);
+		await devtools.send(
+			'Input.dispatchMouseEvent',
+			{
+				type: 'mousePressed',
+				x: position.x,
+				y: position.y,
+				button: 'left',
+				clickCount: 1,
+			},
+			sessionId,
+		);
+		await devtools.send(
+			'Input.dispatchMouseEvent',
+			{
+				type: 'mouseReleased',
+				x: position.x,
+				y: position.y,
+				button: 'left',
+				clickCount: 1,
+			},
+			sessionId,
+		);
+	};
+	await visibleTarget('#magnify-qr-code-button');
+	await clickVisible('summary');
+	await clickVisible('#certificate-setup-open');
 	const interfaces = await evaluate(
 		"window.electron.ipcRenderer.invoke('get-certificate-setup-interfaces')",
 	);
@@ -237,7 +294,6 @@ try {
 		),
 		null,
 	);
-	await evaluate("document.getElementById('certificate-setup-open').click()");
 	await waitFor(
 		"document.getElementById('certificate-setup-interface')?.options.length",
 		(value) => value > 1,
@@ -310,7 +366,7 @@ try {
 		'Certificate setup did not restart',
 	);
 	await waitFor(
-		"Boolean(document.getElementById('certificate-setup-close') && !document.getElementById('certificate-setup-close').disabled)",
+		"Boolean(document.getElementById('certificate-setup-interface')?.options.length > 1 && document.getElementById('certificate-setup-close') && !document.getElementById('certificate-setup-close').disabled && !document.querySelector('.bp6-overlay-enter-active, .bp6-overlay-appear-active'))",
 		Boolean,
 		'The certificate setup dialog could not be closed',
 	);
@@ -327,6 +383,55 @@ try {
 			req.end();
 		}),
 	);
+	await waitFor(
+		"!document.getElementById('certificate-setup-dialog')",
+		Boolean,
+		'The certificate setup dialog remained open',
+	);
+	await clickVisible('summary');
+	await devtools.send(
+		'Emulation.setDeviceMetricsOverride',
+		{
+			width: 640,
+			height: 460,
+			deviceScaleFactor: 1,
+			mobile: false,
+		},
+		sessionId,
+	);
+	await clickVisible('summary');
+	await clickVisible('#certificate-setup-open');
+	await waitFor(
+		"Boolean(document.getElementById('certificate-setup-interface')?.options.length > 1 && document.getElementById('certificate-setup-close') && !document.getElementById('certificate-setup-close').disabled && !document.querySelector('.bp6-overlay-enter-active, .bp6-overlay-appear-active'))",
+		Boolean,
+		'The setup dialog did not open at the minimum window size',
+	);
+	await clickVisible('#certificate-setup-close');
+	try {
+		await waitFor(
+			"!document.getElementById('certificate-setup-dialog')",
+			Boolean,
+			'The setup dialog remained open at the minimum window size',
+		);
+	} catch (error) {
+		throw new Error(
+			`The setup dialog remained open: ${await evaluate("JSON.stringify({text: document.body.innerText, buttons: [...document.querySelectorAll('button')].map(b => ({text: b.innerText, disabled: b.disabled}))})")}`,
+			{ cause: error },
+		);
+	}
+	await clickVisible('summary');
+	assert.equal(
+		await evaluate('getComputedStyle(document.body).overflowY'),
+		'auto',
+	);
+	await evaluate('window.scrollTo(0, document.documentElement.scrollHeight)');
+	await waitFor(
+		'window.scrollY > 0 || document.body.scrollTop > 0',
+		Boolean,
+		'The connection page cannot be scrolled at the minimum window size',
+	);
+	await visibleTarget('#magnify-qr-code-button');
+	await devtools.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
 	const wayland =
 		process.argv.includes('--live') &&
 		(await evaluate(
