@@ -74,6 +74,7 @@ class DeskreenSignalingServer {
 	server = {} as unknown as http.Server;
 
 	hostname: string;
+	viewerAddresses: string[] = [];
 
 	primaryPort: number;
 
@@ -162,6 +163,7 @@ class DeskreenSignalingServer {
 						this.hostname,
 						this.port,
 						owner,
+						this.viewerAddresses,
 					) &&
 						io.engine.clientsCount < 128 &&
 						this.attemptLimit.allow(address),
@@ -183,9 +185,11 @@ class DeskreenSignalingServer {
 		port: number | undefined,
 		credentials: { key: string; cert: string },
 		localHostname: string,
+		viewerAddresses: readonly string[] = [],
 	): Promise<http.Server> {
 		startPollForInactiveRooms();
 		this.hostname = localHostname;
+		this.viewerAddresses = [...viewerAddresses];
 		this.init(credentials);
 		if (port !== undefined) this.port = port;
 		this.server = await this.callListenOnHttpServer(port !== undefined);

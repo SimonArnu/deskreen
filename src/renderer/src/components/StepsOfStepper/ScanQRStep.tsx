@@ -53,20 +53,43 @@ const ScanQRStep: React.FC = () => {
 
 	const [isViewerSlotAvailable, setIsViewerSlotAvailable] = useState(true);
 	const [roomID, setRoomID] = useState('');
+	const [viewerAddress, setViewerAddress] = useState('');
 	const [connectionInfo, setConnectionInfo] = useState<{
 		localHostname: string;
 		certificatePath: string;
 		certificateFingerprint: string;
+		viewerInterfaces: { name: string; address: string }[];
+		viewerAddressesChanged: boolean;
 	} | null>(null);
 	const [isQRCodeMagnified, setIsQRCodeMagnified] = useState(false);
 
 	useEffect(() => {
-		window.electron.ipcRenderer
-			.invoke(IpcEvents.GetConnectionInfo)
-			.then(setConnectionInfo)
-			.catch((error) =>
-				console.error('Failed to get connection information:', error),
-			);
+		let cancelled = false;
+		const refresh = async () => {
+			try {
+				const info = await window.electron.ipcRenderer.invoke(
+					IpcEvents.GetConnectionInfo,
+				);
+				if (cancelled) return;
+				setConnectionInfo(info);
+				setViewerAddress((current) =>
+					current &&
+					!info.viewerInterfaces.some(
+						(entry: { address: string }) => entry.address === current,
+					)
+						? ''
+						: current,
+				);
+			} catch (error) {
+				console.error('Failed to get connection information:', error);
+			}
+		};
+		void refresh();
+		const interval = setInterval(() => void refresh(), 5000);
+		return () => {
+			cancelled = true;
+			clearInterval(interval);
+		};
 	}, []);
 
 	useEffect(() => {
@@ -164,8 +187,14 @@ const ScanQRStep: React.FC = () => {
 		if (!isViewerSlotAvailable) return '';
 		if (!connectionInfo?.localHostname) return '';
 		if (roomPath === '') return '';
-		return `https://${connectionInfo.localHostname}${portString}${roomPath}`;
-	}, [connectionInfo, portString, roomPath, isViewerSlotAvailable]);
+		return `https://${viewerAddress || connectionInfo.localHostname}${portString}${roomPath}`;
+	}, [
+		connectionInfo,
+		viewerAddress,
+		portString,
+		roomPath,
+		isViewerSlotAvailable,
+	]);
 	const isQrInteractive = shareUrl !== '';
 	const connectionLimitTooltip = t('connection-limit-reached-tooltip');
 	const qrTooltipContent = isQrInteractive
@@ -227,6 +256,31 @@ const ScanQRStep: React.FC = () => {
 						)}
 					</span>
 				</Text>
+			</div>
+			<div style={{ textAlign: 'center', margin: '8px 0' }}>
+				<label htmlFor="viewer-address">{t('Viewer address')}: </label>
+				<select
+					id="viewer-address"
+					value={viewerAddress}
+					onChange={(event) => setViewerAddress(event.currentTarget.value)}
+				>
+					<option value="">{connectionInfo?.localHostname ?? '.local'}</option>
+					{connectionInfo?.viewerInterfaces.map((entry) => (
+						<option
+							key={`${entry.name}:${entry.address}`}
+							value={entry.address}
+						>
+							{entry.name} — {entry.address}
+						</option>
+					))}
+				</select>
+				{connectionInfo?.viewerAddressesChanged && (
+					<p role="status">
+						{t(
+							'Network addresses changed. Restart Deskreen to use new LAN IP addresses.',
+						)}
+					</p>
+				)}
 			</div>
 			<div>
 				<Row>
@@ -394,7 +448,7 @@ const ScanQRStep: React.FC = () => {
 					<Col>
 						<H3>
 							{isQrInteractive
-								? `${connectionInfo?.localHostname}${portString}${roomPath}`
+								? `${viewerAddress || connectionInfo?.localHostname}${portString}${roomPath}`
 								: t('waiting-for-connection')}
 						</H3>
 						<H3>{isQrInteractive ? shareUrl : t('waiting-for-connection')}</H3>

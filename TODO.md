@@ -26,6 +26,8 @@
 
 - [ ] Test `.local` resolution, CA installation and HTTPS in Firefox and Chrome
   on Android, including actual screen capture and video playback.
+- [ ] Test the HTTPS LAN-IP viewer on Android 11, including browser trust,
+  pairing, live video and reconnection.
 - [ ] Test the certificate setup QR, download, fingerprint verification and
   CA installation on Android.
 - [ ] Verify browser pairing and active-stream revocation on Android.

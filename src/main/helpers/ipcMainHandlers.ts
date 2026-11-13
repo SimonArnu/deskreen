@@ -26,6 +26,7 @@ import { checkScreenRecordingPermission } from './checkScreenRecordingPermission
 import {
 	CertificateSetup,
 	getSetupInterfaces,
+	getViewerInterfaces,
 } from '../../server/certificateSetup.mjs';
 import {
 	approveViewer,
@@ -168,9 +169,18 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 	});
 
 	ipcMain.handle(IpcEvents.GetConnectionInfo, () => {
-		const { localHostname, certificatePath, certificateFingerprint } =
-			getDeskreenGlobal();
-		return { localHostname, certificatePath, certificateFingerprint };
+		const {
+			localHostname,
+			certificatePath,
+			certificateFingerprint,
+			viewerAddresses,
+		} = getDeskreenGlobal();
+		return {
+			localHostname,
+			certificatePath,
+			certificateFingerprint,
+			...getViewerInterfaces(getSetupInterfaces(), viewerAddresses),
+		};
 	});
 
 	ipcMain.handle('check-wifi-connection', async () => {

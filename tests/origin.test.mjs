@@ -70,3 +70,58 @@ test('allows the advertised HTTPS origin and local helper, not foreign pages', (
 		true,
 	);
 });
+
+test('allows only the issued LAN IP origins on the configured HTTPS port', () => {
+	const allowed = ['192.168.1.25', '10.2.3.4'];
+	assert.equal(
+		isAllowedOrigin(
+			'https://192.168.1.25:3131',
+			'192.168.1.2',
+			'deskreen.local',
+			3131,
+			false,
+			allowed,
+		),
+		true,
+	);
+	assert.equal(
+		isAllowedOrigin(
+			'https://192.168.1.25',
+			'192.168.1.2',
+			'deskreen.local',
+			443,
+			false,
+			allowed,
+		),
+		true,
+	);
+	assert.equal(
+		isAllowedOrigin(
+			'https://10.2.3.4:3131',
+			'192.168.1.2',
+			'deskreen.local',
+			3131,
+			false,
+			allowed,
+		),
+		true,
+	);
+	for (const origin of [
+		'https://192.168.1.26:3131',
+		'http://192.168.1.25:3131',
+		'https://192.168.1.25:3132',
+		'https://192.168.1.25.evil:3131',
+	]) {
+		assert.equal(
+			isAllowedOrigin(
+				origin,
+				'192.168.1.2',
+				'deskreen.local',
+				3131,
+				false,
+				allowed,
+			),
+			false,
+		);
+	}
+});

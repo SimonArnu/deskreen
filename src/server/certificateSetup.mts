@@ -36,6 +36,22 @@ export function getSetupInterfaces(): SetupInterface[] {
 	return result;
 }
 
+export function getViewerInterfaces(
+	interfaces: SetupInterface[],
+	issued: readonly string[],
+) {
+	const current = new Set(interfaces.map((entry) => entry.address));
+	const certificate = new Set(issued);
+	return {
+		viewerInterfaces: interfaces.filter((entry) =>
+			certificate.has(entry.address),
+		),
+		viewerAddressesChanged:
+			current.size !== certificate.size ||
+			[...current].some((address) => !certificate.has(address)),
+	};
+}
+
 export interface CertificateSetupInfo {
 	url: string;
 	address: string;

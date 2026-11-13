@@ -16,6 +16,7 @@ export interface DeskreenGlobal {
 	sharingSessionService: SharingSessionService;
 	desktopCapturerSourcesService: DesktopCapturerSourcesService;
 	localHostname: string;
+	viewerAddresses: string[];
 	certificatePath: string;
 	certificateFingerprint: string;
 	ownerToken: string;
@@ -27,6 +28,7 @@ export const initGlobals = (
 	localHostname: string,
 	certificatePath: string,
 	certificateFingerprint: string,
+	viewerAddresses: string[] = [],
 ) => {
 	const deskreenGlobal: DeskreenGlobal = global as unknown as DeskreenGlobal;
 
@@ -47,6 +49,7 @@ export const initGlobals = (
 	);
 	deskreenGlobal.desktopCapturerSourcesService = new DesktopCapturerSources();
 	deskreenGlobal.localHostname = localHostname;
+	deskreenGlobal.viewerAddresses = [...viewerAddresses];
 	deskreenGlobal.certificatePath = certificatePath;
 	deskreenGlobal.certificateFingerprint = certificateFingerprint;
 };

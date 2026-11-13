@@ -13,6 +13,7 @@ import {
 	mkdir,
 } from 'node:fs/promises';
 import { createServer, request } from 'node:https';
+import { checkServerIdentity } from 'node:tls';
 import { once } from 'node:events';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -87,6 +88,99 @@ test('creates a persistent private CA and a certificate for the local host', asy
 		);
 	} finally {
 		server.close();
+	}
+});
+
+test('LAN IP addresses are authenticated without replacing the private CA', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'deskreen-cert-test-'));
+	const directory = join(root, 'certificates');
+	const original = loadCertificates(directory, 'deskreen.local');
+	const addresses = ['192.168.1.25', '10.2.3.4'];
+	const withAddresses = loadCertificates(
+		directory,
+		'deskreen.local',
+		addresses,
+	);
+	assert.equal(withAddresses.ca, original.ca);
+	assert.equal(withAddresses.key, original.key);
+	const leaf = new X509Certificate(withAddresses.cert);
+	for (const address of addresses) assert.equal(leaf.checkIP(address), address);
+	assert.equal(leaf.checkHost('deskreen.local'), 'deskreen.local');
+	assert.deepEqual(
+		loadCertificates(directory, 'deskreen.local', [...addresses].reverse()),
+		withAddresses,
+	);
+	assert.deepEqual(
+		loadCertificates(directory, 'deskreen.local', [
+			...addresses,
+			addresses[0],
+			'127.0.0.1',
+		]),
+		withAddresses,
+	);
+	const server = createServer(
+		{ key: withAddresses.key, cert: withAddresses.cert },
+		(_req, res) => res.end('ok'),
+	);
+	server.listen(0, '127.0.0.1');
+	await once(server, 'listening');
+	try {
+		const call = (identity) =>
+			new Promise((resolve, reject) => {
+				const req = request(
+					{
+						host: '127.0.0.1',
+						port: server.address().port,
+						servername: 'deskreen.local',
+						ca: withAddresses.ca,
+						checkServerIdentity: (_, cert) =>
+							checkServerIdentity(identity, cert),
+					},
+					(res) => {
+						res.resume();
+						res.on('end', () => resolve(res.statusCode));
+					},
+				);
+				req.on('error', reject);
+				req.end();
+			});
+		assert.equal(await call('192.168.1.25'), 200);
+		await assert.rejects(call('192.168.1.26'), {
+			code: 'ERR_TLS_CERT_ALTNAME_INVALID',
+		});
+	} finally {
+		server.close();
+	}
+	const changed = loadCertificates(directory, 'deskreen.local', [
+		'192.168.1.26',
+	]);
+	assert.equal(changed.ca, original.ca);
+	assert.equal(changed.key, original.key);
+	assert.equal(
+		new X509Certificate(changed.cert).checkIP('192.168.1.25'),
+		undefined,
+	);
+	assert.equal(
+		new X509Certificate(changed.cert).checkIP('192.168.1.26'),
+		'192.168.1.26',
+	);
+});
+
+test('invalid LAN addresses do not alter an existing certificate store', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'deskreen-cert-test-'));
+	const directory = join(root, 'certificates');
+	const original = loadCertificates(directory, 'deskreen.local');
+	for (const addresses of [
+		['192.168.1.1\nsubjectAltName=DNS:evil.local'],
+		['::1'],
+		['not-an-ip'],
+		[null],
+		'192.168.1.1',
+	]) {
+		assert.throws(() =>
+			loadCertificates(directory, 'deskreen.local', addresses),
+		);
+		assert.deepEqual(loadCertificates(directory, 'deskreen.local'), original);
 	}
 });
 

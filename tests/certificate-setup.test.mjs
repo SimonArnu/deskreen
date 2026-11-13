@@ -11,6 +11,7 @@ import {
 	CertificateSetup,
 	isLocalIPv4,
 	getSetupInterfaces,
+	getViewerInterfaces,
 } from '../src/server/certificateSetup.mts';
 
 const directory = mkdtempSync(join(tmpdir(), 'deskreen-setup-test-'));
@@ -40,6 +41,28 @@ test('setup addresses are private or link-local IPv4, never loopback or public',
 		assert.equal(isLocalIPv4(address), false, address);
 	for (const entry of getSetupInterfaces())
 		assert.equal(isLocalIPv4(entry.address), true);
+});
+
+test('only currently present certificate-backed addresses are offered to viewers', () => {
+	const current = [
+		{ name: 'wifi', address: '192.168.1.25' },
+		{ name: 'bridge', address: '172.18.0.1' },
+	];
+	assert.deepEqual(
+		getViewerInterfaces(current, ['172.18.0.1', '192.168.1.25']),
+		{
+			viewerInterfaces: current,
+			viewerAddressesChanged: false,
+		},
+	);
+	assert.deepEqual(getViewerInterfaces(current, ['192.168.1.25', '10.0.0.2']), {
+		viewerInterfaces: [current[0]],
+		viewerAddressesChanged: true,
+	});
+	assert.deepEqual(getViewerInterfaces([], ['192.168.1.25']), {
+		viewerInterfaces: [],
+		viewerAddressesChanged: true,
+	});
 });
 
 function get(url, options = {}) {

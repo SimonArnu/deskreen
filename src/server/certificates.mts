@@ -23,6 +23,7 @@ import {
 	writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { isIPv4 } from 'node:net';
 
 export interface Certificates {
 	ca: string;
@@ -40,7 +41,11 @@ function runOpenSSL(args: string[]): void {
 	}
 }
 
-function generateCertificates(directory: string, hostname: string): void {
+function generateCertificates(
+	directory: string,
+	hostname: string,
+	addresses: string[],
+): void {
 	const caKey = join(directory, 'ca.key');
 	const caCert = join(directory, 'ca.crt');
 	const serverKey = join(directory, 'server.key');
@@ -83,13 +88,14 @@ function generateCertificates(directory: string, hostname: string): void {
 		serverKey,
 	]);
 	chmodSync(serverKey, 0o600);
-	signServerCertificate(directory, directory, hostname, 397);
+	signServerCertificate(directory, directory, hostname, addresses, 397);
 }
 
 function signServerCertificate(
 	directory: string,
 	output: string,
 	hostname: string,
+	addresses: string[],
 	days: number,
 ): void {
 	const request = join(output, 'server.csr');
@@ -107,7 +113,7 @@ function signServerCertificate(
 	]);
 	writeFileSync(
 		extensions,
-		`[extensions]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:${hostname},DNS:localhost,IP:127.0.0.1,IP:::1\n`,
+		`[extensions]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=${[...['DNS:' + hostname, 'DNS:localhost', 'IP:127.0.0.1', 'IP:::1'], ...addresses.map((address) => `IP:${address}`)].join(',')}\n`,
 		{ mode: 0o600 },
 	);
 	runOpenSSL([
@@ -133,7 +139,11 @@ function signServerCertificate(
 	]);
 }
 
-function certificateDirectory(directory: string, hostname: string): string {
+function certificateDirectory(
+	directory: string,
+	hostname: string,
+	addresses: string[],
+): string {
 	const parent = dirname(directory);
 	const prefix = `.deskreen-certificates-${storeId(directory)}-`;
 	try {
@@ -155,8 +165,8 @@ function certificateDirectory(directory: string, hostname: string): string {
 			const staging = mkdtempSync(join(parent, prefix));
 			let published = false;
 			try {
-				generateCertificates(staging, hostname);
-				readCertificates(staging, hostname, false);
+				generateCertificates(staging, hostname, addresses);
+				readCertificates(staging, hostname, addresses, false);
 				writeFileSync(join(staging, 'published'), 'published', {
 					mode: 0o600,
 					flag: 'wx',
@@ -267,6 +277,7 @@ function readRegularFile(path: string, privateFile = false): string {
 function readCertificates(
 	directory: string,
 	hostname: string,
+	addresses: string[],
 	renew: boolean,
 ): Certificates {
 	checkPrivateDirectory(directory);
@@ -304,7 +315,8 @@ function readCertificates(
 		throw new Error('Certificate is not yet valid');
 	if (
 		Date.parse(leaf.validTo) <= now + 30 * 86400000 ||
-		!leaf.checkHost(hostname)
+		!leaf.checkHost(hostname) ||
+		!matchesAddresses(leaf, addresses)
 	) {
 		if (!renew)
 			throw new Error(
@@ -320,7 +332,7 @@ function readCertificates(
 			);
 		const staging = mkdtempSync(join(directory, '.leaf-'));
 		try {
-			signServerCertificate(directory, staging, hostname, days);
+			signServerCertificate(directory, staging, hostname, addresses, days);
 			cert = readRegularFile(join(staging, 'server.crt'));
 			leaf = new X509Certificate(cert);
 			const checkedAt = Date.now();
@@ -330,6 +342,7 @@ function readCertificates(
 				!leaf.verify(authority.publicKey) ||
 				!leaf.checkHost(hostname) ||
 				!leaf.checkIP('127.0.0.1') ||
+				!matchesAddresses(leaf, addresses) ||
 				Date.parse(leaf.validFrom) > checkedAt ||
 				Date.parse(leaf.validTo) <= checkedAt ||
 				Date.parse(leaf.validTo) > Date.parse(authority.validTo) ||
@@ -346,18 +359,45 @@ function readCertificates(
 	return { ca, cert, key };
 }
 
+function matchesAddresses(
+	certificate: X509Certificate,
+	addresses: string[],
+): boolean {
+	const actual = (certificate.subjectAltName ?? '')
+		.split(', ')
+		.filter((value) => value.startsWith('IP Address:'))
+		.map((value) => value.slice('IP Address:'.length))
+		.filter((value) => isIPv4(value) && value !== '127.0.0.1')
+		.sort();
+	return (
+		actual.length === addresses.length &&
+		actual.every((value, index) => value === addresses[index])
+	);
+}
+
 export function loadCertificates(
 	directory: string,
 	hostname: string,
+	addresses: string[] = [],
 ): Certificates {
 	if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.local$/i.test(hostname)) {
 		throw new Error('Invalid local hostname');
 	}
+	if (
+		!Array.isArray(addresses) ||
+		addresses.some((address) => typeof address !== 'string' || !isIPv4(address))
+	) {
+		throw new Error('Invalid IPv4 address');
+	}
+	const normalized = [
+		...new Set(addresses.filter((address) => address !== '127.0.0.1')),
+	].sort();
 	try {
 		return withStoreLock(directory, () =>
 			readCertificates(
-				certificateDirectory(directory, hostname),
+				certificateDirectory(directory, hostname, normalized),
 				hostname,
+				normalized,
 				true,
 			),
 		);

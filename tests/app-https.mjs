@@ -300,6 +300,81 @@ try {
 	const { room, text } = connection;
 	assert.ok(text.includes(new X509Certificate(certificates.ca).fingerprint256));
 	assert.match(room, /^[A-Za-z0-9_-]{32}$/);
+	const connectionInfo = await evaluate(
+		"window.electron.ipcRenderer.invoke('get-connection-info')",
+	);
+	assert.ok(
+		connectionInfo.viewerInterfaces?.length,
+		'No certificate-backed LAN viewer address was available',
+	);
+	const viewerAddress = connectionInfo.viewerInterfaces[0].address;
+	const ipHttpsStatus = await new Promise((resolve, reject) => {
+		const req = request(
+			{ host: viewerAddress, port, ca: certificates.ca },
+			(res) => {
+				res.resume();
+				res.on('end', () => resolve(res.statusCode));
+			},
+		);
+		req.once('error', reject);
+		req.end();
+	});
+	assert.equal(
+		ipHttpsStatus,
+		200,
+		'HTTPS must validate the LAN IP identity using the private CA',
+	);
+	const ipViewer = io(`https://${viewerAddress}:${port}`, {
+		ca: certificates.ca,
+		transports: ['websocket'],
+		reconnection: false,
+		query: { roomId: room },
+		extraHeaders: { Origin: `https://${viewerAddress}:${port}` },
+	});
+	try {
+		await new Promise((resolve, reject) => {
+			const timeout = setTimeout(
+				() => reject(new Error('IP viewer did not reach signaling')),
+				5000,
+			);
+			ipViewer.once('ROOM_READY', () => {
+				clearTimeout(timeout);
+				resolve();
+			});
+			ipViewer.once('connect_error', (error) => {
+				clearTimeout(timeout);
+				reject(error);
+			});
+		});
+		assert.equal(await ipViewer.timeout(2000).emitWithAck('PING'), 'PONG');
+	} finally {
+		ipViewer.disconnect();
+	}
+	await waitFor(
+		"document.getElementById('viewer-address')?.options.length",
+		(value) => value > 1,
+		'The viewer address selector was not displayed',
+	);
+	await evaluate(`(() => {
+		const select = document.getElementById('viewer-address');
+		select.value = ${JSON.stringify(viewerAddress)};
+		select.dispatchEvent(new Event('change', { bubbles: true }));
+	})()`);
+	await waitFor(
+		'document.body.innerText',
+		(value) => value.includes(`https://${viewerAddress}:${port}/`),
+		'The viewer URL did not switch to the selected LAN address',
+	);
+	await evaluate(`(() => {
+		const select = document.getElementById('viewer-address');
+		select.value = '';
+		select.dispatchEvent(new Event('change', { bubbles: true }));
+	})()`);
+	await waitFor(
+		'document.body.innerText',
+		(value) => value.includes(`https://${hostname}:${port}/`),
+		'The viewer URL did not switch back to the .local name',
+	);
 	const visibleTarget = async (selector) => {
 		const position = await evaluate(`(() => {
 			const element = document.querySelector(${JSON.stringify(selector)});
@@ -615,10 +690,23 @@ try {
 				"window.electron.ipcRenderer.invoke('stop-certificate-setup')",
 			);
 			await firefox.navigate('about:blank');
-			const newRoom = await waitFor(
+			let newRoom = await waitFor(
 				"window.electron.ipcRenderer.invoke('get-waiting-for-connection-sharing-session-room-id')",
 				(value) => Boolean(value && value !== room),
 				'A new room was not created after Firefox disconnected',
+			);
+			await firefox.navigate(`https://${viewerAddress}:${port}/${newRoom}`);
+			await waitFor(
+				"window.electron.ipcRenderer.invoke('get-pending-connection-device')",
+				(device) => Boolean(device?.id && /Firefox/.test(device.deviceBrowser)),
+				'Firefox did not reach approval through the LAN IP URL',
+			);
+			assert.match(await firefox.text(), /waiting/i);
+			await firefox.navigate('about:blank');
+			newRoom = await waitFor(
+				"window.electron.ipcRenderer.invoke('get-waiting-for-connection-sharing-session-room-id')",
+				(value) => Boolean(value && value !== newRoom),
+				'A new room was not created after Firefox left the IP viewer',
 			);
 			await firefox.navigate(`https://${hostname}:${port}/${newRoom}`);
 			await waitFor(
@@ -745,7 +833,7 @@ try {
 				'Revoked Firefox was not asked for approval',
 			);
 			successMessage =
-				'Firefox downloaded the CA, verified HTTPS, paired and reconnected.';
+				'Firefox downloaded the CA, reached the IP viewer, paired and reconnected.';
 		} finally {
 			await firefox.close();
 		}

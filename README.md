@@ -85,12 +85,18 @@ If the CA private key may have been exposed, stop sharing and remove the CA from
 each viewing device's trust store. A replacement CA must be distributed and
 verified again; the app does not silently replace an existing CA.
 
-The QR code uses Avahi's `.local` hostname, which requires mDNS to work between
-the devices. The HTTPS listener accepts IPv4 and IPv6; IPv6 viewers must be on
-the same directly connected subnet as the address they use. A hostname change
-renews the server certificate without replacing the CA. If certificate
-initialization is interrupted, preserve existing CA files and inspect the
-reported error before attempting recovery.
+The viewer QR code defaults to Avahi's `.local` hostname, which requires mDNS
+to work between the devices. If the viewing device cannot resolve `.local`,
+choose the computer's Wi-Fi or LAN address under **Viewer address** and scan
+the resulting HTTPS QR code. The certificate covers the private IPv4 addresses
+present when Deskreen starts. If network addresses change, restart Deskreen to
+update the server certificate; the private CA stays the same.
+
+The HTTPS listener accepts IPv4 and IPv6; IPv6 viewers must be on the same
+directly connected subnet as the address they use. A hostname change renews
+the server certificate without replacing the CA. If certificate initialization
+is interrupted, preserve existing CA files and inspect the reported error before
+attempting recovery.
 
 ## Remembering a browser
 
@@ -102,7 +108,9 @@ first-time step: verify the CA fingerprint and do not bypass certificate errors.
 Use **Trusted browsers** in the app to list or revoke them. Revocation disconnects
 an active viewer; a revoked browser must be approved again. Clearing browser
 storage, switching browser profiles, changing the hostname or changing the port
-also requires pairing again. Revoke any entries that are no longer needed.
+also requires pairing again. The `.local` and IP addresses are separate browser
+origins, so switching between them requires pairing again. Revoke any entries
+that are no longer needed.
 
 Trust belongs to a browser profile, not a physical device: anyone who copies or
 steals its stored credential can use it. Revoke trust if the profile or device is

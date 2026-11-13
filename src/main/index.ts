@@ -98,6 +98,7 @@ import { parsePort } from './helpers/parsePort.mjs';
 import { mainWindowPosition } from './helpers/mainWindowPosition.mjs';
 import { getLocalHostname } from './helpers/localHostname.mjs';
 import { loadCertificates } from '../server/certificates.mjs';
+import { getSetupInterfaces } from '../server/certificateSetup.mjs';
 import { verifyLocalCertificate } from './helpers/verifyLocalCertificate.mjs';
 
 const resolvePreloadScriptPath = (
@@ -145,6 +146,9 @@ export default class DeskreenApp {
 				startLogBufferCleanup();
 
 				const localHostname = getLocalHostname();
+				const viewerAddresses = [
+					...new Set(getSetupInterfaces().map((entry) => entry.address)),
+				];
 				const certificateDirectory = join(
 					app.getPath('userData'),
 					'security',
@@ -153,12 +157,14 @@ export default class DeskreenApp {
 				const certificates = loadCertificates(
 					certificateDirectory,
 					localHostname,
+					viewerAddresses,
 				);
 				initGlobals(
 					join(__dirname, '..'),
 					localHostname,
 					join(certificateDirectory, 'ca.crt'),
 					new X509Certificate(certificates.ca).fingerprint256,
+					viewerAddresses,
 				);
 				session.defaultSession.setCertificateVerifyProc((request, callback) => {
 					callback(
@@ -169,7 +175,12 @@ export default class DeskreenApp {
 						),
 					);
 				});
-				await signalingServer.start(port, certificates, localHostname);
+				await signalingServer.start(
+					port,
+					certificates,
+					localHostname,
+					viewerAddresses,
+				);
 				await this.createWindow();
 			})
 			.catch((error) => {
