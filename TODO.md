@@ -24,14 +24,16 @@
 
 ## Verification and certificate lifecycle
 
-- [ ] Test `.local` resolution, CA installation and HTTPS in Firefox and Chrome
-  on Android, including actual screen capture and video playback.
-- [ ] Test the HTTPS LAN-IP viewer on Android 11, including browser trust,
-  pairing, live video and reconnection.
-- [ ] Test the certificate setup QR, download, fingerprint verification and
-  CA installation on Android.
+- [x] Test CA download and installation, Firefox HTTPS via the LAN IP, live
+  video and recovery after a browser reload on one Android 11 tablet.
+- [ ] Confirm setup QR scanning and independently verify the downloaded CA
+  fingerprint on Android.
+- [ ] Investigate `.local` resolution failure on Android 11 and test HTTPS and
+  video playback via `.local` in Firefox and Chrome.
+- [ ] Test the HTTPS LAN-IP viewer, browser trust and live video in Chrome on
+  Android.
 - [ ] Verify browser pairing and active-stream revocation on Android.
-- [ ] Test recovery from network loss, device sleep and browser reload with
-  real devices and a live stream.
+- [ ] Test recovery from network loss and device sleep with real devices and a
+  live stream.
 - [ ] Provide an explicit CA recovery and rotation workflow before the local CA
   expires or if its key is compromised. Never silently replace a trusted CA.

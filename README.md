@@ -61,8 +61,8 @@ To download the public certificate, open **First-time HTTPS setup**, select
 the device, and start the temporary download. Scan the setup QR code on the
 device. This separate HTTP endpoint contains only instructions and the public
 certificate; it uses the selected IP address and closes after five minutes,
-when you stop it, or when you close the setup dialog. The HTTPS viewer still
-uses the `.local` hostname. A firewall may need to allow the temporary port.
+when you stop it, or when you close the setup dialog. The viewer uses a separate
+HTTPS URL. A firewall may need to allow the temporary port.
 
 The download is unauthenticated HTTP: an attacker on the network could replace
 it. Do not trust a fingerprint displayed by that page. On the viewing device,
@@ -76,10 +76,16 @@ openssl x509 -inform DER -in ~/storage/downloads/deskreen-ca.cer -noout -sha256 
 ```
 
 Adjust the filename if necessary. If you cannot verify the fingerprint, do not
-install the CA; use another trusted transfer method instead. Android's CA
-installation settings and browser support vary and have not yet been tested on
-the tablet. If no suitable private IPv4 interface is available, or the browser
-blocks the HTTP download, use a trusted transfer method such as USB instead.
+install the CA; use another trusted transfer method instead. Downloading and
+installing the CA was tested on one Android 11 tablet; settings and browser
+support may vary. If no suitable private IPv4 interface is available, or the
+browser blocks the HTTP download, use a trusted transfer method such as USB.
+
+On the tested Android 11 tablet, Firefox required **Use third party CA
+certificates** to be enabled after installing the CA in Android. In Firefox,
+open **Settings → About Firefox**, tap the Firefox logo five times to reveal
+**Secret Settings**, then enable that option. This makes Firefox trust all
+user-installed CAs, not just Deskreen's, so review and verify them first.
 
 If the CA private key may have been exposed, stop sharing and remove the CA from
 each viewing device's trust store. A replacement CA must be distributed and
@@ -127,10 +133,11 @@ again; capture is not restored automatically. If a viewer is offline when
 sharing stops, it can only learn that the session ended after it reaches the
 host again; while the host is unreachable it continues retrying.
 
-Reconnection is experimental. A Wayland live-video test resumed playback after
-a Firefox reload, but PipeWire logged a thread-loop assertion at source
-selection and shutdown; the strict live test therefore fails. Android and real
-network-interruption recovery have not been verified.
+Reconnection is experimental. A live stream resumed after a Firefox reload on
+one Android 11 tablet using the LAN IP. Network interruption and device-sleep
+recovery remain unverified. A Wayland live-video test also resumed playback,
+but PipeWire logged a thread-loop assertion at source selection and shutdown;
+the strict live test therefore fails.
 
 ## Tests
 
