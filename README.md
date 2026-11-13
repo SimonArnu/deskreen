@@ -50,12 +50,36 @@ deskreen-ce --port 8443
 ## HTTPS setup
 
 The app creates a private certificate authority on first launch. Before using
-the viewer, transfer **only the public `ca.crt` certificate** shown in the app
-to the viewing device through a trusted channel, verify its SHA-256 fingerprint,
-and install it in a trust store used by the browser. Android browser support for
-user-installed CAs varies. Installing a CA grants it broad trust on the device;
-never share `ca.key` or any other private key. The app does not install the CA
-automatically.
+the viewer, transfer **only the public CA certificate** to the viewing device,
+independently verify its SHA-256 fingerprint against the value in the desktop
+app, and install it in a trust store used by the browser. Installing a CA grants
+it broad trust on the device; never share `ca.key` or any other private key.
+The app does not install the CA automatically.
+
+To download the public certificate, open **First-time HTTPS setup**, select
+**Download certificate on a device**, choose the private IPv4 interface used by
+the device, and start the temporary download. Scan the setup QR code on the
+device. This separate HTTP endpoint contains only instructions and the public
+certificate; it uses the selected IP address and closes after five minutes,
+when you stop it, or when you close the setup dialog. The HTTPS viewer still
+uses the `.local` hostname. A firewall may need to allow the temporary port.
+
+The download is unauthenticated HTTP: an attacker on the network could replace
+it. Do not trust a fingerprint displayed by that page. On the viewing device,
+use a trusted independent certificate viewer or tool to calculate the
+downloaded file's SHA-256 fingerprint and compare it with the fingerprint in
+the desktop app. For example, in Termux with OpenSSL installed:
+
+```bash
+termux-setup-storage
+openssl x509 -inform DER -in ~/storage/downloads/deskreen-ca.cer -noout -sha256 -fingerprint
+```
+
+Adjust the filename if necessary. If you cannot verify the fingerprint, do not
+install the CA; use another trusted transfer method instead. Android's CA
+installation settings and browser support vary and have not yet been tested on
+the tablet. If no suitable private IPv4 interface is available, or the browser
+blocks the HTTP download, use a trusted transfer method such as USB instead.
 
 If the CA private key may have been exposed, stop sharing and remove the CA from
 each viewing device's trust store. A replacement CA must be distributed and
@@ -105,7 +129,9 @@ the browser viewer with Chrome; set `CHROME_BIN` if Chrome is installed at a
 different path. After `npm run build`, `npm run test:desktop` and
 `npm run test:app` exercise Electron and the full HTTPS signaling application.
 The desktop tests require a graphical session and a working Electron sandbox;
-the application test also requires Avahi and `gdbus`.
+the application test also requires Avahi, `gdbus` and a private IPv4 interface
+for the setup-download check.
+`npm run test:setup-browser` tests the setup download with Chrome.
 `npm run test:firefox` additionally requires Firefox, geckodriver and NSS
 `certutil`; set `GECKODRIVER` and `CERTUTIL` if they are not on the PATH.
 For Snap Firefox, set `FIREFOX_PROFILE_ROOT="$HOME/snap/firefox/common"` so

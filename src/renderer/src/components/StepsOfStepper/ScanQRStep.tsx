@@ -15,6 +15,7 @@ import isProduction from '../../../../common/isProduction';
 import { IpcEvents } from '../../../../common/IpcEvents.enum';
 import { useTranslation } from 'react-i18next';
 import Logo192 from '../../assets/logo192.png';
+import CertificateSetup from '../CertificateSetup';
 
 const useStyles = makeStyles(() =>
 	createStyles({
@@ -198,7 +199,10 @@ const ScanQRStep: React.FC = () => {
 						}
 					>
 						{t('Copy certificate path')}
-					</Button>
+					</Button>{' '}
+					<CertificateSetup
+						fingerprint={connectionInfo.certificateFingerprint}
+					/>
 					<p>
 						{t('SHA-256 fingerprint')}:{' '}
 						<code style={{ overflowWrap: 'anywhere' }}>

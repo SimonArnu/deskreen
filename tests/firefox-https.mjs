@@ -40,7 +40,14 @@ export async function openTrustedFirefox({ hostname, port, room, caPath }) {
 					acceptInsecureCerts: false,
 					'moz:firefoxOptions': {
 						args: ['-headless', '-profile', profile],
-						prefs: { 'network.dns.localDomains': `${hostname},wrong.local` },
+						prefs: {
+							'network.dns.localDomains': `${hostname},wrong.local`,
+							'browser.download.folderList': 2,
+							'browser.download.dir': profile,
+							'browser.download.useDownloadDir': true,
+							'browser.helperApps.neverAsk.saveToDisk':
+								'application/octet-stream',
+						},
 					},
 				},
 			},
@@ -132,6 +139,7 @@ export async function openTrustedFirefox({ hostname, port, room, caPath }) {
 		});
 		await navigate(url);
 		return {
+			downloadDirectory: trustedProfile,
 			async execute(script) {
 				return call(`/session/${activeSession}/execute/sync`, 'POST', {
 					script,

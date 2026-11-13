@@ -7,6 +7,7 @@ import {
 	shell,
 	app,
 } from 'electron';
+import { readFileSync } from 'node:fs';
 import i18n from '../configs/i18next.config';
 import { ConnectedDevicesService } from '../../features/ConnectedDevicesService';
 import SharingSession from '../../features/SharingSessionService/SharingSession';
@@ -23,6 +24,10 @@ import DesktopCapturerSourceType from '../../common/DesktopCapturerSourceType';
 import isLinuxWaylandSession from '../utils/isLinuxWaylandSession';
 import { checkScreenRecordingPermission } from './checkScreenRecordingPermission';
 import {
+	CertificateSetup,
+	getSetupInterfaces,
+} from '../../server/certificateSetup.mjs';
+import {
 	approveViewer,
 	enableViewerReconnection,
 	endViewerSession,
@@ -33,6 +38,42 @@ import {
 } from '../../server/approval';
 
 export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
+	const certificateSetup = new CertificateSetup();
+	const notifySetupChanged = () => {
+		if (!mainWindow.isDestroyed())
+			mainWindow.webContents.send(
+				IpcEvents.CertificateSetupChanged,
+				certificateSetup.status(),
+			);
+	};
+	certificateSetup.on('started', notifySetupChanged);
+	certificateSetup.on('closed', notifySetupChanged);
+	certificateSetup.on('server-error', (error) =>
+		console.error('Certificate setup failed:', error),
+	);
+	mainWindow.on('closed', () => {
+		void certificateSetup
+			.stop()
+			.catch((error) =>
+				console.error('Failed to stop certificate setup:', error),
+			);
+	});
+	ipcMain.handle(IpcEvents.GetCertificateSetupInterfaces, () =>
+		getSetupInterfaces(),
+	);
+	ipcMain.handle(IpcEvents.GetCertificateSetupStatus, () =>
+		certificateSetup.status(),
+	);
+	ipcMain.handle(IpcEvents.StartCertificateSetup, (_, address: unknown) => {
+		if (
+			typeof address !== 'string' ||
+			!getSetupInterfaces().some((entry) => entry.address === address)
+		)
+			return null;
+		const ca = readFileSync(getDeskreenGlobal().certificatePath, 'utf8');
+		return certificateSetup.start(address, ca);
+	});
+	ipcMain.handle(IpcEvents.StopCertificateSetup, () => certificateSetup.stop());
 	ipcMain.on('client-changed-language', async (_, newLangCode) => {
 		i18n.changeLanguage(newLangCode);
 		if (store.has(ElectronStoreKeys.AppLanguage)) {
@@ -97,6 +138,11 @@ export const initIpcMainHandlers = (mainWindow: BrowserWindow): void => {
 	);
 
 	ipcMain.handle('main-window-onbeforeunload', () => {
+		void certificateSetup
+			.stop()
+			.catch((error) =>
+				console.error('Failed to stop certificate setup:', error),
+			);
 		const deskreenGlobal = getDeskreenGlobal();
 		deskreenGlobal.connectedDevicesService = new ConnectedDevicesService();
 		deskreenGlobal.roomIDService = new RoomIDService();

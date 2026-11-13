@@ -17,6 +17,7 @@
     "test:live": "node tests/app-https.mjs --firefox --live",
     "test:live-x11": "node tests/live-stream.mjs",
     "test:viewer": "npm run buildClientViewer && node tests/viewer-browser.mjs && node tests/viewer-browser.mjs --without-webrtc",
+    "test:setup-browser": "node tests/setup-browser.mjs",
     "typecheck:client-viewer": "tsc --noEmit -p src/client-viewer/tsconfig.app.json --composite false",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",

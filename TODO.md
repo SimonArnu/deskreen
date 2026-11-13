@@ -26,6 +26,8 @@
 
 - [ ] Test `.local` resolution, CA installation and HTTPS in Firefox and Chrome
   on Android, including actual screen capture and video playback.
+- [ ] Test the certificate setup QR, download, fingerprint verification and
+  CA installation on Android.
 - [ ] Verify browser pairing and active-stream revocation on Android.
 - [ ] Test recovery from network loss, device sleep and browser reload with
   real devices and a live stream.

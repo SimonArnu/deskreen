@@ -224,6 +224,109 @@ try {
 	const { room, text } = connection;
 	assert.ok(text.includes(new X509Certificate(certificates.ca).fingerprint256));
 	assert.match(room, /^[A-Za-z0-9_-]{32}$/);
+	const interfaces = await evaluate(
+		"window.electron.ipcRenderer.invoke('get-certificate-setup-interfaces')",
+	);
+	assert.ok(
+		interfaces.length,
+		'No private IPv4 interface was available for certificate setup',
+	);
+	assert.equal(
+		await evaluate(
+			"window.electron.ipcRenderer.invoke('start-certificate-setup', '127.0.0.1')",
+		),
+		null,
+	);
+	await evaluate("document.getElementById('certificate-setup-open').click()");
+	await waitFor(
+		"document.getElementById('certificate-setup-interface')?.options.length",
+		(value) => value > 1,
+		'Certificate setup interface selection was not displayed',
+	);
+	assert.equal(
+		await evaluate(
+			"Boolean(document.querySelector('#certificate-setup-dialog .bp6-dialog-body-scroll-container'))",
+		),
+		true,
+		'The certificate setup instructions must remain scrollable',
+	);
+	await evaluate(`(() => {
+		const select = document.getElementById('certificate-setup-interface');
+		select.value = ${JSON.stringify(interfaces[0].address)};
+		select.dispatchEvent(new Event('change', { bubbles: true }));
+	})()`);
+	await evaluate("document.getElementById('certificate-setup-start').click()");
+	const setup = await waitFor(
+		"window.electron.ipcRenderer.invoke('get-certificate-setup-status')",
+		(value) => Boolean(value?.url),
+		'The certificate setup endpoint did not start',
+	);
+	assert.equal(new URL(setup.url).hostname, interfaces[0].address);
+	assert.equal(
+		await evaluate(
+			"Boolean(document.querySelector('#certificate-setup-dialog svg'))",
+		),
+		true,
+		'The setup QR code was not displayed',
+	);
+	const setupCertificate = await new Promise((resolve, reject) => {
+		const req = httpRequest(new URL('/ca.cer', setup.url), (res) => {
+			const parts = [];
+			res.on('data', (part) => parts.push(part));
+			res.on('end', () =>
+				resolve({ status: res.statusCode, bytes: Buffer.concat(parts) }),
+			);
+		});
+		req.on('error', reject);
+		req.end();
+	});
+	assert.equal(setupCertificate.status, 200);
+	assert.equal(
+		new X509Certificate(setupCertificate.bytes).fingerprint256,
+		new X509Certificate(certificates.ca).fingerprint256,
+	);
+	await evaluate("document.getElementById('certificate-setup-stop').click()");
+	await waitFor(
+		"window.electron.ipcRenderer.invoke('get-certificate-setup-status')",
+		(value) => value === null,
+		'The setup endpoint did not stop',
+	);
+	await assert.rejects(
+		new Promise((resolve, reject) => {
+			const req = httpRequest(new URL('/ca.cer', setup.url), resolve);
+			req.on('error', reject);
+			req.end();
+		}),
+	);
+	await waitFor(
+		"Boolean(document.getElementById('certificate-setup-start') && !document.getElementById('certificate-setup-start').disabled)",
+		Boolean,
+		'The certificate setup button did not reset',
+	);
+	await evaluate("document.getElementById('certificate-setup-start').click()");
+	const restartedSetup = await waitFor(
+		"window.electron.ipcRenderer.invoke('get-certificate-setup-status')",
+		(value) => Boolean(value?.url),
+		'Certificate setup did not restart',
+	);
+	await waitFor(
+		"Boolean(document.getElementById('certificate-setup-close') && !document.getElementById('certificate-setup-close').disabled)",
+		Boolean,
+		'The certificate setup dialog could not be closed',
+	);
+	await evaluate("document.getElementById('certificate-setup-close').click()");
+	await waitFor(
+		"window.electron.ipcRenderer.invoke('get-certificate-setup-status')",
+		(value) => value === null,
+		'Closing the dialog did not stop certificate setup',
+	);
+	await assert.rejects(
+		new Promise((resolve, reject) => {
+			const req = httpRequest(new URL('/ca.cer', restartedSetup.url), resolve);
+			req.on('error', reject);
+			req.end();
+		}),
+	);
 	const wayland =
 		process.argv.includes('--live') &&
 		(await evaluate(
@@ -304,6 +407,35 @@ try {
 					)
 				).length,
 				1,
+			);
+			const firefoxSetup = await evaluate(
+				`window.electron.ipcRenderer.invoke('start-certificate-setup', ${JSON.stringify(interfaces[0].address)})`,
+			);
+			await firefox.navigate(firefoxSetup.url);
+			assert.match(await firefox.text(), /independent certificate viewer/i);
+			await firefox.execute(
+				'document.querySelector(\'a[href="/ca.cer"]\').click()',
+			);
+			const downloadDeadline = Date.now() + 10000;
+			let firefoxCertificate;
+			while (Date.now() < downloadDeadline) {
+				try {
+					firefoxCertificate = await readFile(
+						join(firefox.downloadDirectory, 'deskreen-ca.cer'),
+					);
+					if (firefoxCertificate.length) break;
+				} catch (error) {
+					if (error.code !== 'ENOENT') throw error;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+			assert.ok(firefoxCertificate, 'Firefox did not download the public CA');
+			assert.equal(
+				new X509Certificate(firefoxCertificate).fingerprint256,
+				new X509Certificate(certificates.ca).fingerprint256,
+			);
+			await evaluate(
+				"window.electron.ipcRenderer.invoke('stop-certificate-setup')",
 			);
 			await firefox.navigate('about:blank');
 			const newRoom = await waitFor(
@@ -436,7 +568,7 @@ try {
 				'Revoked Firefox was not asked for approval',
 			);
 			successMessage =
-				'Firefox verified HTTPS, paired, reconnected and required approval after revocation.';
+				'Firefox downloaded the CA, verified HTTPS, paired and reconnected.';
 		} finally {
 			await firefox.close();
 		}
@@ -862,7 +994,7 @@ try {
 			revoked.disconnect();
 		}
 		successMessage =
-			'The HTTPS viewer, connection instructions and local signaling helper are available.';
+			'The certificate setup, HTTPS viewer and local signaling helper are available.';
 	}
 } catch (error) {
 	failure = error;
